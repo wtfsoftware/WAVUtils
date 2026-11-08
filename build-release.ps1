@@ -54,9 +54,9 @@ $ISCC = "C:\Program Files\Inno Setup 7\ISCC.exe"
 
 if (Test-Path $ISCC) {
     Write-Host "  Inno Setup found, building installer..." -ForegroundColor Green
-    & $ISCC (Join-Path $Root "WAVUtils-Installer.iss") /DMyAppVersion=$Version
+    & $ISCC (Join-Path $Root "WAVUtils-Installer.iss") "/DMyAppVersion=$Version"
     
-    $setupFile = Get-ChildItem $DistDir -Filter "WAVUtils-Setup-*.exe" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+    $setupFile = Get-ChildItem $DistDir -Filter "WAVUtils-Setup-$Version.exe" -ErrorAction SilentlyContinue
     if ($setupFile) {
         Write-Host "  Installer: $($setupFile.Name)" -ForegroundColor Green
     }

@@ -3,7 +3,7 @@
 ; https://github.com/wtfsoftware/WAVUtils
 
 #define MyAppName "WAVUtils"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "WTF Software"
 #define MyAppURL "https://github.com/wtfsoftware/WAVUtils"
 #define MyAppExeName "WAVUtils.exe"
