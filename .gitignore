@@ -1,0 +1,22 @@
+## Build outputs
+bin/
+obj/
+*.user
+*.suo
+*.cache
+
+## IDE
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+
+## NuGet
+nuget.config
+*.nupkg
+**/packages/*
+!**/packages/LICENSE.txt
+
+## Release
+WAVUtils.Installer.exe

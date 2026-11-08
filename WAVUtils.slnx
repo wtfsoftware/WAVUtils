@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="WAVUtils.App/WAVUtils.App.csproj" />
+  <Project Path="WAVUtils.Core/WAVUtils.Core.csproj" />
+  <Project Path="WAVUtils.Tray/WAVUtils.Tray.csproj" />
+</Solution>
