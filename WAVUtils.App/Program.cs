@@ -47,6 +47,10 @@ static class Program
                 await RunSplit(args[1]);
                 break;
 
+            case "check-update":
+                await RunCheckUpdate();
+                break;
+
             default:
                 Console.Error.WriteLine(string.Format(LocalizationManager.GetResource("AppUnknownCommand"), command));
                 break;
@@ -114,6 +118,40 @@ static class Program
             using var tray = new NotifyIcon { Icon = SystemIcons.Shield, Visible = true };
             tray.ShowBalloonTip(5000, "WAV Utils", $"Ошибка: {ex.Message}", ToolTipIcon.Error);
             tray.Dispose();
+        }
+    }
+
+    private static async Task RunCheckUpdate()
+    {
+        Console.WriteLine(LocalizationManager.GetResource("UpdateChecking"));
+        
+        try
+        {
+            var updateInfo = await WAVUtils.Core.UpdateChecker.CheckForUpdatesAsync();
+
+            if (!string.IsNullOrEmpty(updateInfo.ErrorMessage))
+            {
+                Console.Error.WriteLine(updateInfo.ErrorMessage);
+                return;
+            }
+
+            if (updateInfo.UpdateAvailable)
+            {
+                Console.WriteLine(string.Format(
+                    LocalizationManager.GetResource("UpdateAvailable"),
+                    updateInfo.LatestVersion, updateInfo.CurrentVersion));
+                Console.WriteLine($"Download: {updateInfo.DownloadUrl}");
+            }
+            else
+            {
+                Console.WriteLine(LocalizationManager.GetResource("UpdateUpToDate"));
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(string.Format(
+                LocalizationManager.GetResource("UpdateCheckError"),
+                ex.Message));
         }
     }
 }

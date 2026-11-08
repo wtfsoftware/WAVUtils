@@ -1,5 +1,5 @@
 ; WAVUtils Installer
-; Copyright (c) 2025 WTF Software
+; Copyright (c) 2026 WTF Software
 ; https://github.com/wtfsoftware/WAVUtils
 
 #define MyAppName "WAVUtils"

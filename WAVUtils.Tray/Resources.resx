@@ -65,7 +65,43 @@
     <value>About</value>
   </data>
   <data name="TrayExit" xml:space="preserve">
-    <value>Exit</value>
+    <value>E&amp;xit</value>
+  </data>
+  <data name="UpdateChecking" xml:space="preserve">
+    <value>Checking for updates...</value>
+  </data>
+  <data name="UpdateAvailable" xml:space="preserve">
+    <value>Update available: {0} (current: {1})</value>
+  </data>
+  <data name="UpdateUpToDate" xml:space="preserve">
+    <value>You are using the latest version.</value>
+  </data>
+  <data name="UpdateCheckFailed" xml:space="preserve">
+    <value>Unable to check for updates. Please try again later.</value>
+  </data>
+  <data name="UpdateCheckError" xml:space="preserve">
+    <value>Error checking for updates: {0}</value>
+  </data>
+  <data name="UpdateDownloadStart" xml:space="preserve">
+    <value>Downloading update...</value>
+  </data>
+  <data name="UpdateDownloadComplete" xml:space="preserve">
+    <value>Download complete. Installing...</value>
+  </data>
+  <data name="UpdateInstallSuccess" xml:space="preserve">
+    <value>Update installed successfully. Restart the application.</value>
+  </data>
+  <data name="UpdateInstallFailed" xml:space="preserve">
+    <value>Failed to install update. Please download manually.</value>
+  </data>
+  <data name="UpdateManualDownload" xml:space="preserve">
+    <value>Download manually from GitHub</value>
+  </data>
+  <data name="UpdateCheckNow" xml:space="preserve">
+    <value>Check for &amp;Updates</value>
+  </data>
+  <data name="UpdateAutoCheck" xml:space="preserve">
+    <value>&amp;Automatically check for updates</value>
   </data>
   <data name="AppTitle" xml:space="preserve">
     <value>WAV Utils</value>

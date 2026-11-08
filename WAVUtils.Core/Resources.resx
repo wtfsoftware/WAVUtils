@@ -85,4 +85,40 @@
   <data name="ProviderNotMono" xml:space="preserve">
     <value>File must be mono: {0}</value>
   </data>
+  <data name="UpdateChecking" xml:space="preserve">
+    <value>Проверка обновлений...</value>
+  </data>
+  <data name="UpdateAvailable" xml:space="preserve">
+    <value>Доступно обновление: {0} (текущая: {1})</value>
+  </data>
+  <data name="UpdateUpToDate" xml:space="preserve">
+    <value>Установлена последняя версия.</value>
+  </data>
+  <data name="UpdateCheckFailed" xml:space="preserve">
+    <value>Не удалось проверить обновления. Попробуйте позже.</value>
+  </data>
+  <data name="UpdateCheckError" xml:space="preserve">
+    <value>Ошибка проверки обновлений: {0}</value>
+  </data>
+  <data name="UpdateDownloadStart" xml:space="preserve">
+    <value>Загрузка обновления...</value>
+  </data>
+  <data name="UpdateDownloadComplete" xml:space="preserve">
+    <value>Загрузка завершена. Установка...</value>
+  </data>
+  <data name="UpdateInstallSuccess" xml:space="preserve">
+    <value>Обновление установлено. Перезапустите приложение.</value>
+  </data>
+  <data name="UpdateInstallFailed" xml:space="preserve">
+    <value>Не удалось установить обновление. Загрузите вручную.</value>
+  </data>
+  <data name="UpdateManualDownload" xml:space="preserve">
+    <value>Загрузить вручную с GitHub</value>
+  </data>
+  <data name="UpdateCheckNow" xml:space="preserve">
+    <value>Проверить &amp;обновления</value>
+  </data>
+  <data name="UpdateAutoCheck" xml:space="preserve">
+    <value>&amp;Автоматически проверять обновления</value>
+  </data>
 </root>

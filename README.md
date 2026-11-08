@@ -63,4 +63,4 @@ dotnet run --project WAVUtils.App
 
 ## License
 
-MIT — Copyright (c) 2025 WTF Software
+MIT — Copyright (c) 2026 WTF Software
