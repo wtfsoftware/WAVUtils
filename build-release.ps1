@@ -50,16 +50,15 @@ Copy-Item (Join-Path $Root "README.md") (Join-Path $PublishDir "README.md") -For
 
 # Build installer
 Write-Host "[4/6] Building installer..." -ForegroundColor Yellow
-$ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+$ISCC = "C:\Program Files\Inno Setup 7\ISCC.exe"
 
 if (Test-Path $ISCC) {
     Write-Host "  Inno Setup found, building installer..." -ForegroundColor Green
     & $ISCC (Join-Path $Root "WAVUtils-Installer.iss") /DMyAppVersion=$Version
     
-    $setupFile = Get-ChildItem (Join-Path $DistDir "WAVUtils-Setup-*.exe") -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+    $setupFile = Get-ChildItem $DistDir -Filter "WAVUtils-Setup-*.exe" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
     if ($setupFile) {
         Write-Host "  Installer: $($setupFile.Name)" -ForegroundColor Green
-        $setupFile | Copy-Item -Destination (Join-Path $DistDir "WAVUtils-Setup-$Version.exe") -Force
     }
 } else {
     Write-Host "  Inno Setup not found, creating 7-Zip SFX..." -ForegroundColor Yellow

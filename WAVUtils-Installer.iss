@@ -26,16 +26,52 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64os
+ArchitecturesInstallIn64BitMode=x64os
 UninstallDisplayIcon={app}\{#MyAppExeName}
 LicenseFile=LICENSE
 InfoBeforeFile=README-INSTALL.txt
 AppMutex=WAVUtilsGlobalMutex
+ShowLanguageDialog=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+
+[CustomMessages]
+english.CreateDesktopIcon=Create a &desktop icon
+english.AdditionalIcons=Additional icons:
+english.AddContextMenu=&Add context menu entries (right-click merge/split)
+english.AutoStart=&Start WAVUtils on Windows login
+russian.CreateDesktopIcon=Создать ярлык на &рабочем столе
+russian.AdditionalIcons=Дополнительные ярлыки:
+russian.AddContextMenu=&Добавить записи в контекстное меню (правый клик для объединения/разделения)
+russian.AutoStart=&Запускать WAVUtils при входе в Windows
+german.CreateDesktopIcon=Desktop-&Symbol erstellen
+german.AdditionalIcons=Zusätzliche Symbole:
+german.AddContextMenu=Kontextmenü-&Einträge hinzufügen (Rechtsklick zum Zusammenführen/Trennen)
+german.AutoStart=WAVUtils beim Windows-Anmelden &starten
+french.CreateDesktopIcon=Créer une icône sur le &bureau
+french.AdditionalIcons=Icônes supplémentaires :
+french.AddContextMenu=Ajouter des entrées dans le menu contextuel (clic droit pour fusionner/séparer)
+french.AutoStart=&Démarrer WAVUtils à l'ouverture de session Windows
+spanish.CreateDesktopIcon=Crear un icono en el &escritorio
+spanish.AdditionalIcons=Iconos adicionales:
+spanish.AddContextMenu=Añadir entradas al menú contextual (clic derecho para unir/separar)
+spanish.AutoStart=&Iniciar WAVUtils al iniciar sesión en Windows
+japanese.CreateDesktopIcon=デスクトップにアイコンを作成(&D)
+japanese.AdditionalIcons=追加アイコン:
+japanese.AddContextMenu=コンテキストメニューに追加（右クリックで結合/分離）
+japanese.AutoStart=Windowsログイン時にWAVUtilsを起動する(&S)
+chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
+chinesesimplified.AdditionalIcons=其他图标:
+chinesesimplified.AddContextMenu=添加上下文菜单（右键单击合并/拆分）
+chinesesimplified.AutoStart=Windows登录时启动WAVUtils(&S)
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
