@@ -19,4 +19,8 @@ nuget.config
 !**/packages/LICENSE.txt
 
 ## Release
+publish/
+dist/
 WAVUtils.Installer.exe
+*.zip
+inspect.cs
