@@ -24,3 +24,9 @@ dist/
 WAVUtils.Installer.exe
 *.zip
 inspect.cs
+
+## Test media (production audio/video, never commit)
+*.wav
+*.WAV
+*.crm
+*.CRM
