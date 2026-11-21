@@ -98,30 +98,26 @@ public static class SplitCommand
 
     private static TrackMetadata[] ReadPmalChunks(byte[] fileData)
     {
-        // PMAL chunk is after the data chunk
-        // Parse to find data chunk end, then look for PMAL
-        int dataChunkEnd = 44; // Standard WAV header
-
-        // Find data chunk size
-        byte[] dataId = new byte[4];
-        byte[] lenBytes = new byte[4];
-        
-        // Skip RIFF header
+        // Walk the chunk list to the end of the data chunk: merged files carry bext/ixml/INFO
+        // before data, so the "fmt at 12, data at 36" assumption does not hold.
+        int dataChunkEnd = -1;
         int pos = 12;
-        
-        // Skip fmt chunk (always 24 bytes)
-        pos += 24;
-        
-        // Read data chunk header
-        System.Text.Encoding.ASCII.GetBytes("data").CopyTo(dataId, 0);
-        System.Array.Copy(fileData, pos, dataId, 0, 4); // should be "data"
-        System.Array.Copy(fileData, pos + 4, lenBytes, 0, 4);
-        int dataSize = BitConverter.ToInt32(lenBytes, 0);
-        
-        dataChunkEnd = pos + 8 + dataSize;
-        
-        // Look for PMAL chunk after data
-        if (dataChunkEnd + 8 > fileData.Length)
+        byte[] lenBytes = new byte[4];
+
+        while (pos + 8 <= fileData.Length)
+        {
+            string id = System.Text.Encoding.ASCII.GetString(fileData, pos, 4);
+            System.Array.Copy(fileData, pos + 4, lenBytes, 0, 4);
+            int len = BitConverter.ToInt32(lenBytes, 0);
+            if (id == "data")
+            {
+                dataChunkEnd = pos + 8 + len + (len & 1);
+                break;
+            }
+            pos += 8 + len + (len & 1);
+        }
+
+        if (dataChunkEnd < 0 || dataChunkEnd + 8 > fileData.Length)
             return Array.Empty<TrackMetadata>();
 
         byte[] pmalId = new byte[4];
@@ -181,8 +177,16 @@ public static class SplitCommand
             WriteChunkToStream(fs, "adtl", adtlData);
         }
 
-        // Write raw chunks
-        WavMetadataChunk.WriteChunksToStream(fs, track.Chunks);
+        // Write raw chunks; those already written from the typed model are skipped - a RIFF
+        // chunk type must appear at most once (F6 files carry bext in both places)
+        var typedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (track.Bext != null) typedIds.Add("bext");
+        if (track.Ixml != null) typedIds.Add("ixml");
+        if (track.Info != null) typedIds.Add("list");
+        if (track.Cue != null) typedIds.Add("cue ");
+        if (track.Smpl != null) typedIds.Add("smpl");
+        if (track.Adtl != null) typedIds.Add("adtl");
+        WavMetadataChunk.WriteChunksToStream(fs, track.Chunks.Where(c => !typedIds.Contains(c.ChunkId)).ToList());
     }
 
     private static void WriteChunkToStream(Stream stream, string chunkId, byte[] chunkData)

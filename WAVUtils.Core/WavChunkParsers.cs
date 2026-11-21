@@ -9,6 +9,9 @@ namespace WAVUtils.Core;
 /// </summary>
 public class BextChunkData
 {
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
     [JsonPropertyName("originator")]
     public string Originator { get; set; } = string.Empty;
 
@@ -28,46 +31,60 @@ public class BextChunkData
     public short Version { get; set; }
 
     [JsonPropertyName("umid")]
-    public byte[] Umid { get; set; } = new byte[12];
+    public byte[] Umid { get; set; } = new byte[64];
 
     [JsonPropertyName("codingHistory")]
     public string CodingHistory { get; set; } = string.Empty;
 
+    // AES3/EBU Tech 3285 field offsets within the chunk body; fixed part is 602 bytes,
+    // CodingHistory follows (de-facto: Zoom F6 and libsndfile agree on 602).
+    private const int DescriptionOff = 0, OriginatorOff = 256, OriginatorRefOff = 288,
+        DateOff = 320, TimeOff = 330, TimeRefOff = 342, VersionOff = 350,
+        UmidOff = 352, FixedSize = 602;
+
     public static BextChunkData? Parse(byte[] data)
     {
-        if (data.Length < 602) return null;
+        if (data.Length < FixedSize) return null;
 
         var result = new BextChunkData();
 
-        result.Originator = ReadAsciiNullTerminated(data, 0, 180).TrimEnd('\0');
-        result.OriginatorReference = ReadAsciiNullTerminated(data, 180, 30).TrimEnd('\0');
-        result.OriginationDate = ReadAsciiNullTerminated(data, 210, 32).TrimEnd('\0');
-        result.OriginationTime = ReadAsciiNullTerminated(data, 242, 32).TrimEnd('\0');
-        result.TimeReference = BitConverter.ToInt64(data, 274);
-        result.Version = BitConverter.ToInt16(data, 282);
-        Array.Copy(data, 284, result.Umid, 0, 12);
-        result.CodingHistory = ReadAsciiNullTerminated(data, 300, data.Length - 300).TrimEnd('\0');
+        result.Description = ReadAsciiNullTerminated(data, DescriptionOff, 256).TrimEnd('\0');
+        result.Originator = ReadAsciiNullTerminated(data, OriginatorOff, 32).TrimEnd('\0');
+        result.OriginatorReference = ReadAsciiNullTerminated(data, OriginatorRefOff, 32).TrimEnd('\0');
+        result.OriginationDate = ReadAsciiNullTerminated(data, DateOff, 10).TrimEnd('\0');
+        result.OriginationTime = ReadAsciiNullTerminated(data, TimeOff, 12).TrimEnd('\0');
+        result.TimeReference = BitConverter.ToInt64(data, TimeRefOff);
+        // Zoom F6 (and some other recorders) write a non-conforming bext: 8-char OriginationTime
+        // and TimeReference at 338. Spec time has '.' at offset 8; normalize when it is absent.
+        if (data[TimeOff + 2] == (byte)':' && data[TimeOff + 5] == (byte)':' && data[TimeOff + 8] != (byte)'.')
+        {
+            result.OriginationTime = ReadAsciiNullTerminated(data, TimeOff, 8).TrimEnd('\0') + ".000";
+            result.TimeReference = BitConverter.ToInt64(data, TimeOff + 8);
+        }
+        result.Version = BitConverter.ToInt16(data, VersionOff);
+        Array.Copy(data, UmidOff, result.Umid, 0, 64);
+        result.CodingHistory = ReadAsciiNullTerminated(data, FixedSize, data.Length - FixedSize).TrimEnd('\0');
 
         return result;
     }
 
     public byte[] Serialize()
     {
-        int codingHistoryMax = Math.Max(1, 602 - 300);
-        byte[] codingHistoryBytes = Encoding.ASCII.GetBytes(CodingHistory.Length > codingHistoryMax ? CodingHistory[..codingHistoryMax] : CodingHistory);
-        int totalSize = 300 + codingHistoryBytes.Length;
+        byte[] codingHistoryBytes = Encoding.ASCII.GetBytes(CodingHistory);
+        int totalSize = FixedSize + codingHistoryBytes.Length;
         totalSize = (totalSize % 2 == 0) ? totalSize : totalSize + 1;
 
         byte[] buffer = new byte[totalSize];
 
-        WriteAsciiNullTerminated(buffer, 0, Originator, 180);
-        WriteAsciiNullTerminated(buffer, 180, OriginatorReference, 30);
-        WriteAsciiNullTerminated(buffer, 210, OriginationDate, 32);
-        WriteAsciiNullTerminated(buffer, 242, OriginationTime, 32);
-        BitConverter.GetBytes(TimeReference).CopyTo(buffer, 274);
-        BitConverter.GetBytes(Version).CopyTo(buffer, 282);
-        Umid.CopyTo(buffer, 284);
-        codingHistoryBytes.CopyTo(buffer, 300);
+        WriteAsciiNullTerminated(buffer, DescriptionOff, Description, 256);
+        WriteAsciiNullTerminated(buffer, OriginatorOff, Originator, 32);
+        WriteAsciiNullTerminated(buffer, OriginatorRefOff, OriginatorReference, 32);
+        WriteAsciiNullTerminated(buffer, DateOff, OriginationDate, 10);
+        WriteAsciiNullTerminated(buffer, TimeOff, OriginationTime, 12);
+        BitConverter.GetBytes(TimeReference).CopyTo(buffer, TimeRefOff);
+        BitConverter.GetBytes(Version).CopyTo(buffer, VersionOff);
+        Umid.AsSpan(0, Math.Min(Umid.Length, 64)).CopyTo(buffer.AsSpan(UmidOff));
+        codingHistoryBytes.CopyTo(buffer, FixedSize);
 
         return buffer;
     }
