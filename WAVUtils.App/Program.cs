@@ -29,13 +29,23 @@ static class Program
 
         switch (command)
         {
+            case "merge" when args.Length >= 3
+                && string.Equals(args[1], "--explorer", StringComparison.OrdinalIgnoreCase):
+            {
+                // Explorer starts this verb once per selected file; gather all files first.
+                string[] explorerFiles = MergeInstance.CollectAsync(args[2..]).GetAwaiter().GetResult();
+                if (explorerFiles.Length == 0)
+                    return; // handed to the running collector instance
+                RunMerge(explorerFiles, outputPath: null);
+                break;
+            }
+
+            case "merge" when args.Length >= 3:
+                RunMerge(args[1..^1], outputPath: args[^1]);
+                break;
+
             case "merge":
-                if (args.Length < 3)
-                {
-                    Console.Error.WriteLine(LocalizationManager.GetResource("AppMergeArgError"));
-                    return;
-                }
-                await RunMerge(args[1..]);
+                Console.Error.WriteLine(LocalizationManager.GetResource("AppMergeArgError"));
                 break;
 
             case "split":
@@ -44,8 +54,27 @@ static class Program
                     Console.Error.WriteLine(LocalizationManager.GetResource("AppSplitArgError"));
                     return;
                 }
-                await RunSplit(args[1]);
+                RunSplit(args[1]);
                 break;
+
+            case "tc" when args.Length >= 2:
+            {
+                string[] tcArgs = args[1..];
+                string? tcSource = null;
+                if (string.Equals(tcArgs[0], "--from", StringComparison.OrdinalIgnoreCase) && tcArgs.Length >= 2)
+                {
+                    tcSource = tcArgs[1];
+                    tcArgs = tcArgs[2..];
+                    if (tcArgs.Length == 0)
+                    {
+                        Console.Error.WriteLine("tc: no target files after --from <source>");
+                        return;
+                    }
+                }
+                foreach (var line in WAVUtils.Core.TcCommand.Run(tcArgs, tcSource))
+                    Console.WriteLine(line);
+                break;
+            }
 
             case "check-update":
                 await RunCheckUpdate();
@@ -57,67 +86,87 @@ static class Program
         }
     }
 
-    private static async Task RunMerge(string[] inputArgs)
+    // The UI thread pumps explicitly (no Application.Run here): an await
+    // continuation posted to the WinForms sync context would never run and the
+    // process would hang with the window stuck open.
+    private static void RunMerge(string[] inputFiles, string? outputPath)
     {
-        string[] inputFiles = inputArgs.Take(inputArgs.Length - 1).ToArray();
-        string? outputPath = inputArgs.Length > inputFiles.Length ? inputArgs[inputArgs.Length - 1] : null;
-
         using var progress = new ProgressWindow(inputFiles.Length);
         progress.SetOperation(LocalizationManager.GetResource("AppMergeOperation"));
         progress.Show();
-        Application.DoEvents();
 
-        try
+        foreach (var file in inputFiles)
         {
-            foreach (var file in inputFiles)
-            {
-                progress.AddFile(Path.GetFileName(file));
-            }
-
-            string result = await Task.Run(() => WAVUtils.Core.MergeCommand.Run(inputFiles, outputPath));
-            progress.Complete();
-
-            // Tray notification
-            using var tray = new NotifyIcon
-            {
-                Icon = SystemIcons.Shield,
-                Visible = true
-            };
-            tray.ShowBalloonTip(3000, LocalizationManager.GetResource("AppTitle"), string.Format(LocalizationManager.GetResource("AppMergeBalloon"), Path.GetFileName(result)), ToolTipIcon.Info);
-            tray.Dispose();
+            progress.AddFile(Path.GetFileName(file));
         }
-        catch (Exception ex)
+
+        string? result = null;
+        Exception? error = null;
+        var work = Task.Run(async () =>
         {
-            progress.Fail(ex.Message);
+            try { result = await WAVUtils.Core.MergeCommand.Run(inputFiles, outputPath); }
+            catch (Exception ex) { error = ex; }
+        });
+        while (!work.Wait(20))
+            Application.DoEvents();
+
+        if (error is null)
+        {
+            if (!progress.IsDisposed)
+                progress.Complete();
             using var tray = new NotifyIcon { Icon = SystemIcons.Shield, Visible = true };
-            tray.ShowBalloonTip(5000, LocalizationManager.GetResource("AppTitle"), string.Format(LocalizationManager.GetResource("AppErrorBalloon"), ex.Message), ToolTipIcon.Error);
-            tray.Dispose();
+            tray.ShowBalloonTip(3000, LocalizationManager.GetResource("AppTitle"), string.Format(LocalizationManager.GetResource("AppMergeBalloon"), Path.GetFileName(result!)), ToolTipIcon.Info);
         }
+        else
+        {
+            if (!progress.IsDisposed)
+                progress.Fail(error.Message);
+            using var tray = new NotifyIcon { Icon = SystemIcons.Shield, Visible = true };
+            tray.ShowBalloonTip(5000, LocalizationManager.GetResource("AppTitle"), string.Format(LocalizationManager.GetResource("AppErrorBalloon"), error.Message), ToolTipIcon.Error);
+        }
+        PumpUntilClosed(progress);
     }
 
-    private static async Task RunSplit(string mergedFile)
+    private static void RunSplit(string mergedFile)
     {
         using var progress = new ProgressWindow(1);
         progress.SetOperation(LocalizationManager.GetResource("AppSplitOperation"));
         progress.Show();
-        Application.DoEvents();
 
-        try
+        string[]? result = null;
+        Exception? error = null;
+        var work = Task.Run(async () =>
         {
-            var result = await Task.Run(() => WAVUtils.Core.SplitCommand.Run(mergedFile));
-            progress.Complete();
+            try { result = await WAVUtils.Core.SplitCommand.Run(mergedFile); }
+            catch (Exception ex) { error = ex; }
+        });
+        while (!work.Wait(20))
+            Application.DoEvents();
 
-            string fileNames = string.Join(", ", result.Where(f => !string.IsNullOrEmpty(f)).Select(Path.GetFileName));
+        if (error is null)
+        {
+            if (!progress.IsDisposed)
+                progress.Complete();
+            string fileNames = string.Join(", ", result!.Where(f => !string.IsNullOrEmpty(f)).Select(Path.GetFileName));
             using var tray = new NotifyIcon { Icon = SystemIcons.Shield, Visible = true };
             tray.ShowBalloonTip(3000, LocalizationManager.GetResource("AppTitle"), string.Format(LocalizationManager.GetResource("AppSplitBalloon"), result.Length, fileNames), ToolTipIcon.Info);
-            tray.Dispose();
         }
-        catch (Exception ex)
+        else
         {
-            progress.Fail(ex.Message);
+            if (!progress.IsDisposed)
+                progress.Fail(error.Message);
             using var tray = new NotifyIcon { Icon = SystemIcons.Shield, Visible = true };
-            tray.ShowBalloonTip(5000, "WAV Utils", $"Ошибка: {ex.Message}", ToolTipIcon.Error);
-            tray.Dispose();
+            tray.ShowBalloonTip(5000, LocalizationManager.GetResource("AppTitle"), string.Format(LocalizationManager.GetResource("AppErrorBalloon"), error.Message), ToolTipIcon.Error);
+        }
+        PumpUntilClosed(progress);
+    }
+
+    private static void PumpUntilClosed(Form form)
+    {
+        while (form.Visible)
+        {
+            Application.DoEvents();
+            System.Threading.Thread.Sleep(20);
         }
     }
 

@@ -85,7 +85,8 @@ public class ProgressWindow : Form
     public void Fail(string error)
     {
         _label.Text = string.Format(WAVUtils.Core.LocalizationManager.GetResource("ProgressError"), error);
-        _progressBar.Style = ProgressBarStyle.Blocks;
+        // No Style change here: it recreates the ProgressBar handle and can throw
+        // Win32 1400; Continuous at 0 renders identically to Blocks.
         _progressBar.Value = 0;
         _autoCloseTimer.Interval = 5000;
         _autoCloseTimer.Start();

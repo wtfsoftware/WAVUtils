@@ -21,7 +21,7 @@ New-ItemProperty -Path $mergeKey -Name "Icon" -Value "`"$exePath`"" -Force | Out
 
 $mergeCmdKey = "$mergeKey\command"
 New-Item -Path $mergeCmdKey -Force | Out-Null
-New-ItemProperty -Path $mergeCmdKey -Name "(Default)" -Value "`"$exePath`" merge `%1`" `%2`" `%3`" `%4`" `%5`" `%6`" `%7`" `%8`" `%9`"" -Force | Out-Null
+New-ItemProperty -Path $mergeCmdKey -Name "(Default)" -Value "`"$exePath`" merge --explorer `"%1`"" -Force | Out-Null
 
 # Split context menu (for WAV files only)
 $splitKey = "HKCU:\Software\Classes\*\shell\WAVUtilsSplit"

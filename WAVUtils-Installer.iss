@@ -3,7 +3,9 @@
 ; https://github.com/wtfsoftware/WAVUtils
 
 #define MyAppName "WAVUtils"
-#define MyAppVersion "1.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.1.1"
+#endif
 #define MyAppPublisher "WTF Software"
 #define MyAppURL "https://github.com/wtfsoftware/WAVUtils"
 #define MyAppExeName "WAVUtils.exe"
@@ -92,7 +94,7 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: 
 ; Context menu - Merge
 Root: HKCU; Subkey: "Software\Classes\*\shell\WAVUtilsMerge"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\*\shell\WAVUtilsMerge"; ValueType: string; ValueName: ""; ValueData: "WAV Utils &// Merge WAV"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\*\shell\WAVUtilsMerge\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" merge ""%1"" ""%2"" ""%3"" ""%4"" ""%5"" ""%6"" ""%7"" ""%8"" ""%9"""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\*\shell\WAVUtilsMerge\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" merge --explorer ""%1"""; Flags: uninsdeletekey
 
 ; Context menu - Split
 Root: HKCU; Subkey: "Software\Classes\*\shell\WAVUtilsSplit"; Flags: uninsdeletekey
