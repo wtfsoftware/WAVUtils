@@ -21,7 +21,9 @@ Write-Host ""
 # Clean
 Write-Host "[1/6] Cleaning..." -ForegroundColor Yellow
 if (Test-Path $PublishDir) { Remove-Item -Recurse -Force $PublishDir }
-if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
+# The directory itself can be undeletable (open handle on a network share) - drop its
+# contents instead so stale artifacts cannot ship; a locked leftover fails the build later.
+if (Test-Path $DistDir) { Get-ChildItem $DistDir -Force | Remove-Item -Recurse -Force }
 New-Item -ItemType Directory -Path $PublishDir -Force | Out-Null
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 
@@ -34,6 +36,7 @@ dotnet publish WAVUtils.App/WAVUtils.App.csproj `
     -p:PublishSingleFile=true `
     -p:PublishReadyToRun=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:Version=$Version `
     -o $PublishDir `
     -v quiet
 
