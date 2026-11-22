@@ -6,7 +6,8 @@ Multi-channel WAV merge and split utility for Windows.
 
 - **Merge** — Combine multiple WAV files into a single multi-channel file. Shorter files are padded with silence.
 - **Split** — Extract tracks from multi-channel WAV files using PMAL metadata chunks.
-- **Typed Metadata** — Preserves bEXT, iXML, INFO, cue, smpl, and adtl chunks with full round-trip support.
+- **Timecode (LTC)** — Decode embedded LTC (biphase) timecode from a recording and stamp it into the file's bext/iXML so a free-running recorder joins a timecode generator's timeline. Merge decodes Start TC from the last input automatically.
+- **Typed Metadata** — Preserves bEXT, iXML, INFO, cue, smpl, and adtl chunks with full round-trip support. bext is read/written at the AES3 / EBU Tech 3285 offsets so DaVinci Resolve, Soundminer and libsndfile see the timecode; non-conforming recorder layouts (Zoom F6/H6) are detected and normalized.
 - **7 Languages** — English, Russian, German, French, Spanish, Japanese, Chinese. Auto-detects OS language.
 - **System Tray** — Optional background mode with balloon notifications.
 - **Context Menu** — Right-click merge/split directly from Windows Explorer.
@@ -30,6 +31,12 @@ WAVUtils.exe merge file1.wav file2.wav [...fileN.wav] [output.wav]
 
 # Split a multi-channel file
 WAVUtils.exe split merged.wav
+
+# Stamp each file's bext/iXML with the LTC timecode decoded from its own audio
+WAVUtils.exe tc track1.wav track2.wav
+
+# Decode once from a source track and apply the same shift to siblings (lav mics)
+WAVUtils.exe tc --from tc_track.wav lav1.wav lav2.wav
 ```
 
 ### Context Menu

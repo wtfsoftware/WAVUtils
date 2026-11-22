@@ -1,5 +1,5 @@
-WAVUtils v1.0.0
-Multi-channel WAV merge and split utility
+WAVUtils
+Multi-channel WAV merge and split utility with LTC timecode support
 
 INSTALLATION
   The installer will copy WAVUtils to your Program Files directory
