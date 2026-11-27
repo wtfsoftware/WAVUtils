@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Reflection;
 using System.Resources;
 using System.Text.Json;
@@ -9,10 +8,6 @@ namespace WAVUtils.Core;
 
 public static class LocalizationManager
 {
-    private static readonly string ConfigPath = Path.Combine(
-        AppContext.BaseDirectory,
-        "config.json");
-
     private static readonly ResourceManager CoreResources = new(
         "WAVUtils.Core.Resources",
         Assembly.GetExecutingAssembly());
@@ -21,8 +16,7 @@ public static class LocalizationManager
 
     public static void Initialize()
     {
-        var config = ReadConfig();
-        var lang = config?.Language ?? "auto";
+        var lang = GetPreferredLanguage(UserSettings.ReadConfig());
 
         if (lang == "auto")
         {
@@ -58,26 +52,17 @@ public static class LocalizationManager
                      ?? key;
     }
 
-    private static ConfigData? ReadConfig()
+    internal static string GetPreferredLanguage(string json)
     {
-        try
-        {
-            if (!File.Exists(ConfigPath)) return null;
-            var json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize<ConfigData>(json);
-        }
-        catch { return null; }
+        using var config = JsonDocument.Parse(json);
+        return config.RootElement.TryGetProperty("language", out var language) && language.ValueKind == JsonValueKind.String
+            ? language.GetString()!
+            : "auto";
     }
 
     private static void WriteConfig(string language)
     {
-        try
-        {
-            var config = new { language };
-            var json = JsonSerializer.Serialize(config);
-            File.WriteAllText(ConfigPath, json);
-        }
-        catch { }
+        UserSettings.SetValue("language", language);
     }
 
     private static readonly Dictionary<string, string> SupportedLanguages = new()
@@ -90,6 +75,4 @@ public static class LocalizationManager
         { "ja", "日本語" },
         { "zh", "简体中文" }
     };
-
-    private class ConfigData { public string? Language { get; set; } }
 }

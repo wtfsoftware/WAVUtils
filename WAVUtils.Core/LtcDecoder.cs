@@ -14,7 +14,7 @@ public static class LtcDecoder
 
     private static readonly double[] FpsCandidates = { 23.976, 24, 25, 29.97, 30 };
 
-    public static Timecode? Decode(IReadOnlyList<float> samples, int sampleRate)
+    public static Timecode? Decode(IReadOnlyList<float> samples, int sampleRate, CancellationToken cancellationToken = default)
     {
         // State ported from libltc LTCDecoder (ltc_decoder_create defaults).
         double center = 128.0;
@@ -43,14 +43,24 @@ public static class LtcDecoder
         float peak = 0f;
         for (int i = 0; i < samples.Count; i++)
         {
+            if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
             float a = Math.Abs(samples[i]);
             if (a > peak) peak = a;
         }
         if (peak < 1e-4f) return null;
         double scale = 127.0 / peak;
+        // The initial biphase state expects a falling edge, irrespective of cable polarity.
+        for (int i = 0; i < samples.Count; i++)
+        {
+            if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+            if (Math.Abs(samples[i]) < peak / 2) continue;
+            scale = Math.CopySign(scale, -samples[i]);
+            break;
+        }
 
         for (int i = 0; i < samples.Count && !done; i++)
         {
+            if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
             int v = (int)(128 + Math.Clamp(samples[i] * scale, -127.0, 127.0));
 
             // track minimum and maximum values (slow decay toward center)

@@ -2,4 +2,5 @@
   <Project Path="WAVUtils.App/WAVUtils.App.csproj" />
   <Project Path="WAVUtils.Core/WAVUtils.Core.csproj" />
   <Project Path="WAVUtils.Tray/WAVUtils.Tray.csproj" />
+  <Project Path="WAVUtils.Tests/WAVUtils.Tests.csproj" />
 </Solution>

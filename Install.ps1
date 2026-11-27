@@ -1,37 +1,40 @@
 ﻿# WAV Utils - Registry Installer
-# Run as Administrator
+# Configures the current user's context menu or Tray autostart.
+
+param([switch]$AutoStart)
+
+$ErrorActionPreference = 'Stop'
+
+if ($AutoStart) {
+    $trayPath = "$PSScriptRoot\WAVUtils.Tray.exe"
+    if (-not (Test-Path -LiteralPath $trayPath -PathType Leaf)) { throw "WAVUtils.Tray.exe not found at: $trayPath" }
+    [Microsoft.Win32.Registry]::SetValue('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run', 'WAVUtils', "`"$trayPath`"")
+    Write-Host 'Tray autostart enabled for this Windows account.'
+    return
+}
 
 $exePath = "$PSScriptRoot\WAVUtils.exe"
 
 Write-Host "Installing WAV Utils context menu..."
 Write-Host "Executable: $exePath"
 
-if (-not (Test-Path $exePath)) {
+if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     Write-Host "ERROR: WAVUtils.exe not found at: $exePath" -ForegroundColor Red
     exit 1
 }
 
-$escapedExe = $exePath -replace '\\', '\\\\'
-
 # Merge context menu (for all files)
-$mergeKey = "HKCU:\Software\Classes\*\shell\WAVUtilsMerge"
-New-Item -Path $mergeKey -Force | Out-Null
-New-ItemProperty -Path $mergeKey -Name "(Default)" -Value "WAV Utils `&// Объединить WAV" -Force | Out-Null
-New-ItemProperty -Path $mergeKey -Name "Icon" -Value "`"$exePath`"" -Force | Out-Null
+# SetValue uses literal keys and preserves unrelated values on reinstall.
+$mergeKey = 'HKEY_CURRENT_USER\Software\Classes\*\shell\WAVUtilsMerge'
+[Microsoft.Win32.Registry]::SetValue($mergeKey, '', 'WAV Utils &// Объединить WAV')
+[Microsoft.Win32.Registry]::SetValue($mergeKey, 'Icon', "`"$exePath`"")
+[Microsoft.Win32.Registry]::SetValue("$mergeKey\command", '', "`"$exePath`" merge --explorer `"%1`"")
 
-$mergeCmdKey = "$mergeKey\command"
-New-Item -Path $mergeCmdKey -Force | Out-Null
-New-ItemProperty -Path $mergeCmdKey -Name "(Default)" -Value "`"$exePath`" merge --explorer `"%1`"" -Force | Out-Null
-
-# Split context menu (for WAV files only)
-$splitKey = "HKCU:\Software\Classes\*\shell\WAVUtilsSplit"
-New-Item -Path $splitKey -Force | Out-Null
-New-ItemProperty -Path $splitKey -Name "(Default)" -Value "WAV Utils `&\\ Разъединить WAV" -Force | Out-Null
-New-ItemProperty -Path $splitKey -Name "Icon" -Value "`"$exePath`"" -Force | Out-Null
-
-$splitCmdKey = "$splitKey\command"
-New-Item -Path $splitCmdKey -Force | Out-Null
-New-ItemProperty -Path $splitCmdKey -Name "(Default)" -Value "`"$exePath`" split `%1`" -Force | Out-Null
+# Split context menu
+$splitKey = 'HKEY_CURRENT_USER\Software\Classes\*\shell\WAVUtilsSplit'
+[Microsoft.Win32.Registry]::SetValue($splitKey, '', 'WAV Utils &\\ Разъединить WAV')
+[Microsoft.Win32.Registry]::SetValue($splitKey, 'Icon', "`"$exePath`"")
+[Microsoft.Win32.Registry]::SetValue("$splitKey\command", '', "`"$exePath`" split `"%1`"")
 
 Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green

@@ -85,4 +85,18 @@
   <data name="ProviderNotMono" xml:space="preserve">
     <value>ファイルはモノである必要があります: {0}</value>
   </data>
+  <data name="AppBanner" xml:space="preserve"><value>WAV Utils - マルチチャンネルWAVマネージャー</value></data>
+  <data name="AppUnknownCommand" xml:space="preserve"><value>不明なコマンド: {0}</value></data>
+  <data name="AppMergeOperation" xml:space="preserve"><value>WAVファイルを結合中...</value></data>
+  <data name="AppSplitOperation" xml:space="preserve"><value>トラックを抽出中...</value></data>
+  <data name="AppTimecodeOperation" xml:space="preserve"><value>タイムコードを書き込み中...</value></data>
+  <data name="TimecodeCheckingOriginal" xml:space="preserve"><value>元のWAVファイルを確認中</value></data>
+  <data name="TimecodeWriting" xml:space="preserve"><value>タイムコード付きWAVを書き込み中</value></data>
+  <data name="TimecodeSavingBackup" xml:space="preserve"><value>元のファイルのバックアップを保存中</value></data>
+  <data name="TimecodeVerifying" xml:space="preserve"><value>タイムコード付きWAVを検証中</value></data>
+  <data name="ProgressComplete" xml:space="preserve"><value>完了！</value></data>
+  <data name="TrayLog" xml:space="preserve"><value>ログ</value></data>
+  <data name="TrayAbout" xml:space="preserve"><value>バージョン情報</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>終了</value></data>
+  <data name="AboutTitle" xml:space="preserve"><value>バージョン情報</value></data>
 </root>

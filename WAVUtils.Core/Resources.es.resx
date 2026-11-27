@@ -85,4 +85,18 @@
   <data name="ProviderNotMono" xml:space="preserve">
     <value>El archivo debe ser mono: {0}</value>
   </data>
+  <data name="AppBanner" xml:space="preserve"><value>WAV Utils - Gestor de WAV multicanal</value></data>
+  <data name="AppUnknownCommand" xml:space="preserve"><value>Comando desconocido: {0}</value></data>
+  <data name="AppMergeOperation" xml:space="preserve"><value>Fusionando archivos WAV...</value></data>
+  <data name="AppSplitOperation" xml:space="preserve"><value>Extrayendo pistas...</value></data>
+  <data name="AppTimecodeOperation" xml:space="preserve"><value>Escribiendo el código de tiempo...</value></data>
+  <data name="TimecodeCheckingOriginal" xml:space="preserve"><value>Comprobando el WAV original</value></data>
+  <data name="TimecodeWriting" xml:space="preserve"><value>Escribiendo el WAV con código de tiempo</value></data>
+  <data name="TimecodeSavingBackup" xml:space="preserve"><value>Guardando la copia de seguridad original</value></data>
+  <data name="TimecodeVerifying" xml:space="preserve"><value>Verificando el WAV con código de tiempo</value></data>
+  <data name="ProgressComplete" xml:space="preserve"><value>¡Hecho!</value></data>
+  <data name="TrayLog" xml:space="preserve"><value>Registro</value></data>
+  <data name="TrayAbout" xml:space="preserve"><value>Acerca de</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>Salir</value></data>
+  <data name="AboutTitle" xml:space="preserve"><value>Acerca de</value></data>
 </root>
