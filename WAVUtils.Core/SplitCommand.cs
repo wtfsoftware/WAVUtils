@@ -1,7 +1,4 @@
-﻿using NAudio.Wave;
-using System.Text.Json;
-
-namespace WAVUtils.Core;
+﻿namespace WAVUtils.Core;
 
 /// <summary>
 /// Handles splitting a multi-channel WAV into individual tracks using PMAL metadata.
@@ -10,201 +7,112 @@ namespace WAVUtils.Core;
 /// </summary>
 public static class SplitCommand
 {
-    public static async Task<string[]> Run(string inputMergedFile, string? outputDirectory = null)
+    public static Task<string[]> Run(string inputMergedFile, string? outputDirectory = null,
+        Action<double, string>? progress = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => RunCore(inputMergedFile, outputDirectory, progress, cancellationToken), cancellationToken);
+
+    private static string[] RunCore(string inputMergedFile, string? outputDirectory,
+        Action<double, string>? progress, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string mergedPath = Path.GetFullPath(inputMergedFile);
         if (!File.Exists(mergedPath))
             throw new FileNotFoundException(string.Format(LocalizationManager.GetResource("SplitFileNotFound"), mergedPath));
 
-        // Read PMAL metadata to get track layout
-        byte[] mergedBytes = File.ReadAllBytes(mergedPath);
-        TrackMetadata[] tracks = ReadPmalChunks(mergedBytes);
-
-        if (tracks.Length == 0)
-            throw new InvalidOperationException(LocalizationManager.GetResource("SplitNoPmal"));
-
-        if (string.IsNullOrEmpty(outputDirectory))
-            outputDirectory = Path.GetDirectoryName(mergedPath)!;
-
+        using var source = new FileStream(mergedPath, FileMode.Open, FileAccess.Read, FileShare.Read, 262144, FileOptions.SequentialScan);
+        WavChunksResult wav = WavMetadataChunk.ReadFile(source, cancellationToken);
+        TrackMetadata[] tracks = WavMetadataChunk.ReadTracks(wav);
+        var mergedFormat = new WavAudioFormat(wav.FormatData);
+        outputDirectory = Path.GetFullPath(string.IsNullOrEmpty(outputDirectory) ? Path.GetDirectoryName(mergedPath)! : outputDirectory);
+        string[] outputFiles = tracks.Select(track => Path.Combine(outputDirectory, track.FileName)).ToArray();
+        var formats = tracks.Select(track => track.FormatData == null ? mergedFormat.WithChannels(track.Channels) : new WavAudioFormat(track.FormatData)).ToArray();
+        var chunks = tracks.Select(track => WavChunkParsers.SerializeTypedMetadata(new WavFileMetadata
+        {
+            Bext = track.Bext, Ixml = track.Ixml, Info = track.Info,
+            Cue = track.Cue, Smpl = track.Smpl, Adtl = track.Adtl
+        }, track.Chunks).ToList()).ToArray();
+        long metadataBytes = 0;
+        for (int i = 0; i < tracks.Length; i++)
+        {
+            WavMetadataChunk.ValidateChunks(chunks[i]);
+            metadataBytes += chunks[i].Sum(chunk => (long)chunk.Data.Length);
+            if (metadataBytes > WavMetadataChunk.MaxMetadataBytes) throw new InvalidDataException("Split metadata exceeds the safety budget.");
+            if (File.Exists(outputFiles[i]) || Directory.Exists(outputFiles[i]))
+                throw new IOException("Split destination already exists: " + tracks[i].FileName);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(outputDirectory);
-
-        // Open merged file for channel extraction
-        using var mergedReader = new WaveFileReader(mergedPath);
-        int totalChannels = mergedReader.WaveFormat.Channels;
-        int bytesPerSample = mergedReader.WaveFormat.BitsPerSample / 8;
-        int bytesPerFrame = totalChannels * bytesPerSample;
-        long totalFrames = mergedReader.Length / bytesPerFrame;
-
-        var outputFiles = new string[tracks.Length];
-        byte[] frameBuffer = new byte[bytesPerFrame];
-
-        for (int t = 0; t < tracks.Length; t++)
+        var destinations = new FileStream?[tracks.Length];
+        var writers = new Rf64WaveFileWriter?[tracks.Length];
+        var temporary = new string?[tracks.Length];
+        try
         {
-            TrackMetadata track = tracks[t];
-            int channels = track.Channels;
-            int channelBytesPerFrame = channels * bytesPerSample;
-
-            // Create output format matching original channel count
-            WaveFormat outputFormat = WaveFormat.CreateCustomFormat(
-                mergedReader.WaveFormat.Encoding,
-                mergedReader.WaveFormat.SampleRate,
-                channels,
-                mergedReader.WaveFormat.SampleRate * channelBytesPerFrame,
-                channelBytesPerFrame,
-                mergedReader.WaveFormat.BitsPerSample);
-
-            // Find the starting channel index for this track in the merged file
-            int startChannel = 0;
-            for (int i = 0; i < t; i++)
+            for (int i = 0; i < tracks.Length; i++)
             {
-                startChannel += tracks[i].Channels;
+                cancellationToken.ThrowIfCancellationRequested();
+                temporary[i] = Path.Combine(outputDirectory, ".wavutils-" + Guid.NewGuid().ToString("N") + ".tmp");
+                destinations[i] = new FileStream(temporary[i]!, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+                writers[i] = new Rf64WaveFileWriter(destinations[i]!, formats[i]);
+                WavMetadataChunk.AddChunks(writers[i]!, chunks[i]);
             }
-
-            string outputPath = Path.Combine(outputDirectory, track.FileName);
-            
-            // Extract channel data for this track
-            long framesWritten = 0;
-            mergedReader.Position = 0;
-
-            // Write audio data
-            using (var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
-            using (var writer = new WaveFileWriter(fs, outputFormat))
+            int blockFrames = Math.Max(1, 262144 / mergedFormat.BlockAlign);
+            byte[] buffer = new byte[blockFrames * mergedFormat.BlockAlign];
+            byte[][] outputBuffers = formats.Select(format => new byte[blockFrames * format.BlockAlign]).ToArray();
+            long totalFrames = wav.DataLength / mergedFormat.BlockAlign;
+            source.Position = wav.DataOffset;
+            progress?.Invoke(0.1, LocalizationManager.GetResource("AppSplitOperation"));
+            for (long frame = 0; frame < totalFrames; frame += blockFrames)
             {
-                while (framesWritten < totalFrames)
+                cancellationToken.ThrowIfCancellationRequested();
+                int count = (int)Math.Min(blockFrames, totalFrames - frame);
+                source.ReadExactly(buffer.AsSpan(0, count * mergedFormat.BlockAlign));
+                int channelOffset = 0;
+                for (int track = 0; track < tracks.Length; track++)
                 {
-                    int read = mergedReader.Read(frameBuffer);
-                    if (read == 0) break;
-
-                    // Extract channels for this track
-                    int srcOffset = startChannel * bytesPerSample;
-                    writer.Write(frameBuffer, srcOffset, channelBytesPerFrame);
-                    framesWritten++;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int stride = formats[track].BlockAlign;
+                    int available = (int)Math.Max(0, Math.Min(count, tracks[track].DataLength / stride - frame));
+                    for (int sample = 0; sample < available; sample++)
+                        Buffer.BlockCopy(buffer, sample * mergedFormat.BlockAlign + channelOffset,
+                            outputBuffers[track], sample * stride, stride);
+                    writers[track]!.Write(outputBuffers[track], 0, available * stride);
+                    channelOffset += stride;
                 }
-                writer.Flush();
+                progress?.Invoke(0.1 + 0.8 * (frame + count) / totalFrames, LocalizationManager.GetResource("AppSplitOperation"));
             }
-
-            outputFiles[t] = outputPath;
-
-            // Append preserved chunks and typed metadata to output file (after writer is closed)
-            if (track.Chunks.Count > 0 || track.Bext != null || track.Ixml != null ||
-                track.Info != null || track.Cue != null || track.Smpl != null || track.Adtl != null)
+            for (int i = 0; i < tracks.Length; i++)
             {
-                AppendChunksToOutput(outputPath, track);
+                cancellationToken.ThrowIfCancellationRequested();
+                writers[i]!.Dispose();
+                writers[i] = null;
+                destinations[i]!.Flush(flushToDisk: true);
+                destinations[i]!.Dispose();
+                destinations[i] = null;
             }
-        }
-
-        return outputFiles;
-    }
-
-    private static TrackMetadata[] ReadPmalChunks(byte[] fileData)
-    {
-        // Walk the chunk list to the end of the data chunk: merged files carry bext/ixml/INFO
-        // before data, so the "fmt at 12, data at 36" assumption does not hold.
-        int dataChunkEnd = -1;
-        int pos = 12;
-        byte[] lenBytes = new byte[4];
-
-        while (pos + 8 <= fileData.Length)
-        {
-            string id = System.Text.Encoding.ASCII.GetString(fileData, pos, 4);
-            System.Array.Copy(fileData, pos + 4, lenBytes, 0, 4);
-            int len = BitConverter.ToInt32(lenBytes, 0);
-            if (id == "data")
+            cancellationToken.ThrowIfCancellationRequested();
+            for (int i = 0; i < tracks.Length; i++)
             {
-                dataChunkEnd = pos + 8 + len + (len & 1);
-                break;
+                // Each move is atomic, not the batch: never roll back by deleting published tracks.
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(temporary[i]!, outputFiles[i], overwrite: false);
+                temporary[i] = null;
             }
-            pos += 8 + len + (len & 1);
+            progress?.Invoke(1, LocalizationManager.GetResource("ProgressComplete"));
+            return outputFiles;
         }
-
-        if (dataChunkEnd < 0 || dataChunkEnd + 8 > fileData.Length)
-            return Array.Empty<TrackMetadata>();
-
-        byte[] pmalId = new byte[4];
-        System.Array.Copy(fileData, dataChunkEnd, pmalId, 0, 4);
-        
-        if (System.Text.Encoding.ASCII.GetString(pmalId) != "pmal")
-            return Array.Empty<TrackMetadata>();
-
-        System.Array.Copy(fileData, dataChunkEnd + 4, lenBytes, 0, 4);
-        int pmalSize = BitConverter.ToInt32(lenBytes, 0);
-        
-        byte[] pmalData = new byte[pmalSize];
-        System.Array.Copy(fileData, dataChunkEnd + 8, pmalData, 0, pmalSize);
-        
-        return JsonSerializer.Deserialize<TrackMetadata[]>(
-            System.Text.Encoding.UTF8.GetString(pmalData)) ?? Array.Empty<TrackMetadata>();
-    }
-
-    private static void AppendChunksToOutput(string outputPath, TrackMetadata track)
-    {
-        using var fs = new FileStream(outputPath, FileMode.Append, FileAccess.Write);
-
-        // Write typed metadata chunks
-        if (track.Bext != null)
+        finally
         {
-            byte[] bextData = track.Bext.Serialize();
-            WriteChunkToStream(fs, "bext", bextData);
-        }
-
-        if (track.Ixml != null)
-        {
-            byte[] ixmlData = track.Ixml.Serialize();
-            WriteChunkToStream(fs, "ixml", ixmlData);
-        }
-
-        if (track.Info != null)
-        {
-            byte[] infoData = track.Info.Serialize();
-            WriteChunkToStream(fs, "list", infoData);
-        }
-
-        if (track.Cue != null)
-        {
-            byte[] cueData = track.Cue.Serialize();
-            WriteChunkToStream(fs, "cue ", cueData);
-        }
-
-        if (track.Smpl != null)
-        {
-            byte[] smplData = track.Smpl.Serialize();
-            WriteChunkToStream(fs, "smpl", smplData);
-        }
-
-        if (track.Adtl != null)
-        {
-            byte[] adtlData = track.Adtl.Serialize();
-            WriteChunkToStream(fs, "adtl", adtlData);
-        }
-
-        // Write raw chunks; those already written from the typed model are skipped - a RIFF
-        // chunk type must appear at most once (F6 files carry bext in both places)
-        var typedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (track.Bext != null) typedIds.Add("bext");
-        if (track.Ixml != null) typedIds.Add("ixml");
-        if (track.Info != null) typedIds.Add("list");
-        if (track.Cue != null) typedIds.Add("cue ");
-        if (track.Smpl != null) typedIds.Add("smpl");
-        if (track.Adtl != null) typedIds.Add("adtl");
-        WavMetadataChunk.WriteChunksToStream(fs, track.Chunks.Where(c => !typedIds.Contains(c.ChunkId)).ToList());
-    }
-
-    private static void WriteChunkToStream(Stream stream, string chunkId, byte[] chunkData)
-    {
-        byte[] idBytes = System.Text.Encoding.ASCII.GetBytes(chunkId);
-        stream.Write(idBytes, 0, 4);
-
-        int dataLen = chunkData.Length;
-        byte[] lenBytes = BitConverter.GetBytes(dataLen);
-        if (!BitConverter.IsLittleEndian)
-            lenBytes = lenBytes.Reverse().ToArray();
-        stream.Write(lenBytes, 0, 4);
-
-        stream.Write(chunkData, 0, dataLen);
-
-        if (dataLen % 2 != 0)
-        {
-            stream.WriteByte(0);
+            var errors = new List<Exception>();
+            for (int i = 0; i < tracks.Length; i++)
+            {
+                try { writers[i]?.Dispose(); }
+                catch (Exception ex) { errors.Add(ex); }
+                try { destinations[i]?.Dispose(); }
+                catch (Exception ex) { errors.Add(ex); }
+                try { if (temporary[i] != null) File.Delete(temporary[i]!); }
+                catch (Exception ex) { errors.Add(ex); }
+            }
+            if (errors.Count > 0) throw new AggregateException("Split temporary-file cleanup failed.", errors);
         }
     }
 }

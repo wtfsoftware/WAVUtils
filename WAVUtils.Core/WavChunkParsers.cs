@@ -1,10 +1,14 @@
+using System.Buffers.Binary;
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace WAVUtils.Core;
 
 /// <summary>
-/// AES3d Broadcast Extension (bEXT) chunk data.
+/// EBU Tech 3285 Broadcast Extension (bext) chunk data.
 /// Used in professional/broadcast WAV files for metadata like originator, coding history, etc.
 /// </summary>
 public class BextChunkData
@@ -36,11 +40,13 @@ public class BextChunkData
     [JsonPropertyName("codingHistory")]
     public string CodingHistory { get; set; } = string.Empty;
 
-    // AES3/EBU Tech 3285 field offsets within the chunk body; fixed part is 602 bytes,
-    // CodingHistory follows (de-facto: Zoom F6 and libsndfile agree on 602).
+    [JsonPropertyName("reserved")]
+    public byte[] Reserved { get; set; } = new byte[190];
+
+    // Includes the version-2 loudness fields and reserved bytes, unchanged on stamping.
     private const int DescriptionOff = 0, OriginatorOff = 256, OriginatorRefOff = 288,
-        DateOff = 320, TimeOff = 330, TimeRefOff = 342, VersionOff = 350,
-        UmidOff = 352, FixedSize = 602;
+        DateOff = 320, TimeOff = 330, TimeRefOff = 338, VersionOff = 346,
+        UmidOff = 348, FixedSize = 602;
 
     public static BextChunkData? Parse(byte[] data)
     {
@@ -52,18 +58,12 @@ public class BextChunkData
         result.Originator = ReadAsciiNullTerminated(data, OriginatorOff, 32).TrimEnd('\0');
         result.OriginatorReference = ReadAsciiNullTerminated(data, OriginatorRefOff, 32).TrimEnd('\0');
         result.OriginationDate = ReadAsciiNullTerminated(data, DateOff, 10).TrimEnd('\0');
-        result.OriginationTime = ReadAsciiNullTerminated(data, TimeOff, 12).TrimEnd('\0');
-        result.TimeReference = BitConverter.ToInt64(data, TimeRefOff);
-        // Zoom F6 (and some other recorders) write a non-conforming bext: 8-char OriginationTime
-        // and TimeReference at 338. Spec time has '.' at offset 8; normalize when it is absent.
-        if (data[TimeOff + 2] == (byte)':' && data[TimeOff + 5] == (byte)':' && data[TimeOff + 8] != (byte)'.')
-        {
-            result.OriginationTime = ReadAsciiNullTerminated(data, TimeOff, 8).TrimEnd('\0') + ".000";
-            result.TimeReference = BitConverter.ToInt64(data, TimeOff + 8);
-        }
-        result.Version = BitConverter.ToInt16(data, VersionOff);
+        result.OriginationTime = ReadAsciiNullTerminated(data, TimeOff, 8);
+        result.TimeReference = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(TimeRefOff));
+        result.Version = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(VersionOff));
         Array.Copy(data, UmidOff, result.Umid, 0, 64);
-        result.CodingHistory = ReadAsciiNullTerminated(data, FixedSize, data.Length - FixedSize).TrimEnd('\0');
+        result.Reserved = data.AsSpan(412, 190).ToArray();
+        result.CodingHistory = Encoding.ASCII.GetString(data, FixedSize, data.Length - FixedSize);
 
         return result;
     }
@@ -72,21 +72,34 @@ public class BextChunkData
     {
         byte[] codingHistoryBytes = Encoding.ASCII.GetBytes(CodingHistory);
         int totalSize = FixedSize + codingHistoryBytes.Length;
-        totalSize = (totalSize % 2 == 0) ? totalSize : totalSize + 1;
-
         byte[] buffer = new byte[totalSize];
 
         WriteAsciiNullTerminated(buffer, DescriptionOff, Description, 256);
         WriteAsciiNullTerminated(buffer, OriginatorOff, Originator, 32);
         WriteAsciiNullTerminated(buffer, OriginatorRefOff, OriginatorReference, 32);
         WriteAsciiNullTerminated(buffer, DateOff, OriginationDate, 10);
-        WriteAsciiNullTerminated(buffer, TimeOff, OriginationTime, 12);
-        BitConverter.GetBytes(TimeReference).CopyTo(buffer, TimeRefOff);
-        BitConverter.GetBytes(Version).CopyTo(buffer, VersionOff);
+        WriteAsciiNullTerminated(buffer, TimeOff, OriginationTime, 8);
+        BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(TimeRefOff), TimeReference);
+        BinaryPrimitives.WriteInt16LittleEndian(buffer.AsSpan(VersionOff), Version);
         Umid.AsSpan(0, Math.Min(Umid.Length, 64)).CopyTo(buffer.AsSpan(UmidOff));
+        Reserved.AsSpan(0, Math.Min(Reserved.Length, 190)).CopyTo(buffer.AsSpan(412));
         codingHistoryBytes.CopyTo(buffer, FixedSize);
 
         return buffer;
+    }
+
+    internal static byte[] StampTimeReference(byte[]? source, long timeReference, int sampleRate)
+    {
+        if (sampleRate <= 0 || timeReference < 0 || timeReference >= 86400L * sampleRate)
+            throw new InvalidDataException("Time reference is outside the timecode day.");
+        if (source != null && source.Length < FixedSize)
+            throw new InvalidDataException("Truncated bext chunk.");
+        byte[] data = source == null ? new BextChunkData { Originator = "WAVUtils" }.Serialize() : (byte[])source.Clone();
+        long seconds = timeReference / sampleRate;
+        string clock = FormattableString.Invariant($"{seconds / 3600:00}:{seconds % 3600 / 60:00}:{seconds % 60:00}");
+        Encoding.ASCII.GetBytes(clock).CopyTo(data, TimeOff);
+        BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(TimeRefOff), timeReference);
+        return data;
     }
 
     private static string ReadAsciiNullTerminated(byte[] data, int offset, int maxLength)
@@ -127,6 +140,49 @@ public class IxmlChunkData
         byte[] bytes = Encoding.UTF8.GetBytes(Content);
         return bytes;
     }
+
+    internal static string StampTimecode(string? content, LtcDecoder.Timecode tc,
+        int? sampleRate = null, long? timeReference = null)
+    {
+        XDocument document;
+        if (string.IsNullOrWhiteSpace(content))
+            document = new XDocument(new XElement("BWF_XML"));
+        else
+        {
+            using var text = new StringReader(content.TrimStart('\uFEFF').TrimEnd('\0'));
+            using var reader = XmlReader.Create(text, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                MaxCharactersInDocument = 16 * 1024 * 1024
+            });
+            document = XDocument.Load(reader, LoadOptions.PreserveWhitespace);
+        }
+        XElement root = document.Root ?? throw new XmlException("Missing iXML root.");
+        if (root.Name != "BWF_XML") throw new XmlException("Expected BWF_XML root.");
+        if (root.Elements("SPEED").Count() > 1) throw new XmlException("Duplicate SPEED element.");
+        XElement speed = root.Element("SPEED") ?? new XElement("SPEED");
+        if (speed.Parent == null) root.Add(speed);
+        int nominal = checked((int)Math.Round(tc.Fps));
+        string rate = Math.Abs(tc.Fps - nominal * 1000.0 / 1001) < 0.005
+            ? FormattableString.Invariant($"{nominal * 1000}/1001") : FormattableString.Invariant($"{nominal}/1");
+        Set("TIMECODE_RATE", rate);
+        Set("TIMECODE_FLAG", tc.DropFrame ? "DF" : "NDF");
+        if (sampleRate.HasValue && timeReference.HasValue)
+        {
+            if (sampleRate <= 0 || timeReference < 0) throw new InvalidDataException("Invalid iXML timestamp.");
+            Set("TIMESTAMP_SAMPLE_RATE", sampleRate.Value.ToString(CultureInfo.InvariantCulture));
+            Set("TIMESTAMP_SAMPLES_SINCE_MIDNIGHT_HI", ((ulong)timeReference.Value >> 32).ToString(CultureInfo.InvariantCulture));
+            Set("TIMESTAMP_SAMPLES_SINCE_MIDNIGHT_LO", ((uint)timeReference.Value).ToString(CultureInfo.InvariantCulture));
+        }
+        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>" + document.ToString(SaveOptions.DisableFormatting);
+
+        void Set(string name, string value)
+        {
+            speed.Elements(name).Remove();
+            speed.Add(new XElement(name, value));
+        }
+    }
 }
 
 /// <summary>
@@ -139,28 +195,18 @@ public class InfoChunkData
 
     public static InfoChunkData? Parse(byte[] data)
     {
-        if (data.Length < 8) return null;
+        if (data.Length < 4) return null;
 
-        string listId = Encoding.ASCII.GetString(data, 0, 4);
-        if (listId != "info") return null;
+        string listId = WavChunkParsers.ReadListType(data);
+        if (!listId.Equals("INFO", StringComparison.OrdinalIgnoreCase)) return null;
 
         var tags = new Dictionary<string, string>();
         int pos = 4;
 
-        while (pos + 8 <= data.Length)
+        while (pos < data.Length)
         {
-            string key = Encoding.ASCII.GetString(data, pos, 4);
-            int len = BitConverter.ToInt32(data, pos + 4);
-
-            pos += 8;
-            if (pos + len > data.Length) break;
-
-            string value = Encoding.ASCII.GetString(data, pos, len);
-            value = value.TrimEnd('\0');
-            tags[key] = value;
-
-            pos += len;
-            if (len % 2 != 0) pos++;
+            var value = WavChunkParsers.ReadListChunk(data, ref pos, out string key);
+            tags[key] = Encoding.ASCII.GetString(value).TrimEnd('\0');
         }
 
         if (tags.Count > 0)
@@ -172,31 +218,20 @@ public class InfoChunkData
 
     public byte[] Serialize()
     {
-        int totalSize = 4; // "info"
-        foreach (var kvp in Tags)
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("INFO"u8);
+        foreach (var kvp in Tags.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            totalSize += 8; // key + len
-            totalSize += kvp.Value.Length;
-            if (kvp.Value.Length % 2 != 0) totalSize++;
+            if (kvp.Key.Length != 4 || kvp.Key.Any(c => c < 32 || c > 126))
+                throw new InvalidDataException("INFO identifiers must be four ASCII characters.");
+            writer.Write(Encoding.ASCII.GetBytes(kvp.Key));
+            byte[] valueBytes = Encoding.ASCII.GetBytes(kvp.Value.TrimEnd('\0') + "\0");
+            writer.Write(valueBytes.Length);
+            writer.Write(valueBytes);
+            if ((valueBytes.Length & 1) != 0) writer.Write((byte)0);
         }
-
-        byte[] buffer = new byte[totalSize];
-        Encoding.ASCII.GetBytes("info").CopyTo(buffer, 0);
-        int pos = 4;
-
-        foreach (var kvp in Tags)
-        {
-            Encoding.ASCII.GetBytes(kvp.Key).CopyTo(buffer, pos);
-            pos += 4;
-            byte[] valueBytes = Encoding.ASCII.GetBytes(kvp.Value);
-            BitConverter.GetBytes(valueBytes.Length).CopyTo(buffer, pos);
-            pos += 4;
-            valueBytes.CopyTo(buffer, pos);
-            pos += valueBytes.Length;
-            if (valueBytes.Length % 2 != 0) pos++;
-        }
-
-        return buffer;
+        return stream.ToArray();
     }
 }
 
@@ -425,8 +460,7 @@ public class SmplLoopData
 }
 
 /// <summary>
-/// adtl (Audio Data Link List) chunk data.
-/// Contains labelf, note, LNAM, etc. — metadata linked to cue points.
+/// Labels and notes linked to cue points in an Associated Data List.
 /// </summary>
 public class AdtlChunkData
 {
@@ -436,50 +470,36 @@ public class AdtlChunkData
     [JsonPropertyName("notes")]
     public List<AdtlNoteData> Notes { get; set; } = new();
 
-    public static AdtlChunkData? Parse(byte[] data)
+    public static AdtlChunkData? Parse(byte[] data) => ParseSegments(data);
+
+    internal static AdtlChunkData? ParseSegments(ReadOnlySpan<byte> data)
     {
         if (data.Length == 0) return null;
 
         var result = new AdtlChunkData();
         int pos = 0;
 
-        while (pos + 8 <= data.Length)
+        while (pos < data.Length)
         {
-            string segmentId = Encoding.ASCII.GetString(data, pos, 4);
-            int segmentLen = BitConverter.ToInt32(data, pos + 4);
-            pos += 8;
-
-            if (pos + segmentLen > data.Length) break;
-
-            byte[] segmentData = new byte[segmentLen];
-            Array.Copy(data, pos, segmentData, 0, segmentLen);
-            pos += segmentLen;
-            if (segmentLen % 2 != 0) pos++;
-
+            var segment = WavChunkParsers.ReadListChunk(data, ref pos, out string segmentId, adtl: true);
             switch (segmentId)
             {
                 case "labl":
                 case "labL":
-                    if (segmentLen >= 4)
+                    result.Labels.Add(new AdtlLabelData
                     {
-                        result.Labels.Add(new AdtlLabelData
-                        {
-                            Id = BitConverter.ToInt32(segmentData, 0),
-                            Text = Encoding.ASCII.GetString(segmentData, 4, segmentLen - 4).TrimEnd('\0')
-                        });
-                    }
+                        Id = BinaryPrimitives.ReadInt32LittleEndian(segment),
+                        Text = Encoding.ASCII.GetString(segment[4..]).TrimEnd('\0')
+                    });
                     break;
 
                 case "note":
                 case "Note":
-                    if (segmentLen >= 4)
+                    result.Notes.Add(new AdtlNoteData
                     {
-                        result.Notes.Add(new AdtlNoteData
-                        {
-                            Id = BitConverter.ToInt32(segmentData, 0),
-                            Text = Encoding.ASCII.GetString(segmentData, 4, segmentLen - 4).TrimEnd('\0')
-                        });
-                    }
+                        Id = BinaryPrimitives.ReadInt32LittleEndian(segment),
+                        Text = Encoding.ASCII.GetString(segment[4..]).TrimEnd('\0')
+                    });
                     break;
             }
         }
@@ -493,44 +513,23 @@ public class AdtlChunkData
 
     public byte[] Serialize()
     {
-        int totalSize = 0;
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
         foreach (var label in Labels)
-        {
-            int textLen = Encoding.ASCII.GetBytes(label.Text).Length;
-            totalSize += 8 + 4 + textLen + (textLen % 2 != 0 ? 1 : 0);
-        }
+            WriteSegment("labl"u8, label.Id, label.Text);
         foreach (var note in Notes)
+            WriteSegment("note"u8, note.Id, note.Text);
+        return stream.ToArray();
+
+        void WriteSegment(ReadOnlySpan<byte> type, int id, string text)
         {
-            int textLen = Encoding.ASCII.GetBytes(note.Text).Length;
-            totalSize += 8 + 4 + textLen + (textLen % 2 != 0 ? 1 : 0);
+            byte[] bytes = Encoding.ASCII.GetBytes(text.TrimEnd('\0') + "\0");
+            writer.Write(type);
+            writer.Write(checked(4 + bytes.Length));
+            writer.Write(id);
+            writer.Write(bytes);
+            if ((bytes.Length & 1) != 0) writer.Write((byte)0);
         }
-
-        byte[] buffer = new byte[totalSize];
-        int pos = 0;
-
-        foreach (var label in Labels)
-        {
-            Encoding.ASCII.GetBytes("labl").CopyTo(buffer, pos); pos += 4;
-            int textLen = Encoding.ASCII.GetBytes(label.Text).Length;
-            BitConverter.GetBytes(4 + textLen).CopyTo(buffer, pos); pos += 4;
-            BitConverter.GetBytes(label.Id).CopyTo(buffer, pos); pos += 4;
-            byte[] textBytes = Encoding.ASCII.GetBytes(label.Text);
-            textBytes.CopyTo(buffer, pos); pos += textLen;
-            if (textLen % 2 != 0) pos++;
-        }
-
-        foreach (var note in Notes)
-        {
-            Encoding.ASCII.GetBytes("note").CopyTo(buffer, pos); pos += 4;
-            int textLen = Encoding.ASCII.GetBytes(note.Text).Length;
-            BitConverter.GetBytes(4 + textLen).CopyTo(buffer, pos); pos += 4;
-            BitConverter.GetBytes(note.Id).CopyTo(buffer, pos); pos += 4;
-            byte[] textBytes = Encoding.ASCII.GetBytes(note.Text);
-            textBytes.CopyTo(buffer, pos); pos += textLen;
-            if (textLen % 2 != 0) pos++;
-        }
-
-        return buffer;
     }
 }
 
@@ -594,6 +593,42 @@ public class WavFileMetadata
 /// </summary>
 public static class WavChunkParsers
 {
+    internal static string ReadListType(ReadOnlySpan<byte> data) => data.Length >= 4
+        ? WavMetadataChunk.ReadChunkId(data[..4]) : throw new InvalidDataException("Truncated LIST type.");
+
+    internal static ReadOnlySpan<byte> ReadListChunk(ReadOnlySpan<byte> data, scoped ref int pos, out string id, bool adtl = false)
+    {
+        if (data.Length - pos < 8) throw new InvalidDataException("Truncated LIST subchunk header.");
+        id = WavMetadataChunk.ReadChunkId(data.Slice(pos, 4));
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(data[(pos + 4)..]);
+        pos += 8;
+        int pad = (int)(size & 1);
+        if ((long)size + pad > data.Length - pos) throw new InvalidDataException("Truncated LIST subchunk or padding.");
+        if (adtl && size < 4 && id is "labl" or "labL" or "note" or "Note")
+            throw new InvalidDataException("Truncated adtl cue identifier.");
+        var body = data.Slice(pos, (int)size);
+        pos += (int)size;
+        if (pad != 0 && data[pos++] != 0) throw new InvalidDataException("Nonzero LIST subchunk padding.");
+        return body;
+    }
+
+    internal static void ValidateList(WavChunkData chunk)
+    {
+        ReadOnlySpan<byte> data = chunk.Data;
+        string type = chunk.ChunkId;
+        if (type.Equals("LIST", StringComparison.OrdinalIgnoreCase))
+        {
+            type = ReadListType(data);
+            data = data[4..];
+            if (!type.Equals("INFO", StringComparison.OrdinalIgnoreCase) && !type.Equals("adtl", StringComparison.OrdinalIgnoreCase)) return;
+        }
+        else if (!type.Equals("adtl", StringComparison.OrdinalIgnoreCase)) return;
+
+        bool adtl = type.Equals("adtl", StringComparison.OrdinalIgnoreCase);
+        int pos = 0;
+        while (pos < data.Length) _ = ReadListChunk(data, ref pos, out _, adtl);
+    }
+
     /// <summary>
     /// Parse a WAV chunk by its ID into typed metadata.
     /// Unknown chunk types are returned as raw WavChunkData.
@@ -660,7 +695,12 @@ public static class WavChunkParsers
                     break;
 
                 case "list":
-                    metadata.Info = InfoChunkData.Parse(chunk.Data);
+                    string type = ReadListType(chunk.Data);
+                    if (type.Equals("INFO", StringComparison.OrdinalIgnoreCase) && InfoChunkData.Parse(chunk.Data) is { } info)
+                        metadata.Info = info;
+                    else if (type.Equals("adtl", StringComparison.OrdinalIgnoreCase) && AdtlChunkData.ParseSegments(chunk.Data.AsSpan(4)) is { } adtl)
+                        metadata.Adtl = adtl;
+                    else metadata.OtherChunks.Add(chunk);
                     break;
 
                 case "cue ":
@@ -673,6 +713,10 @@ public static class WavChunkParsers
 
                 case "adtl":
                     metadata.Adtl = AdtlChunkData.Parse(chunk.Data);
+                    break;
+
+                default:
+                    metadata.OtherChunks.Add(chunk);
                     break;
             }
         }
@@ -688,7 +732,7 @@ public static class WavChunkParsers
     {
         var result = new List<WavChunkData>();
 
-        if (metadata.Bext != null)
+        if (metadata.Bext != null && !rawChunks.Any(c => c.ChunkId.Equals("bext", StringComparison.OrdinalIgnoreCase)))
         {
             result.Add(new WavChunkData
             {
@@ -697,25 +741,25 @@ public static class WavChunkParsers
             });
         }
 
-        if (metadata.Ixml != null)
+        if (metadata.Ixml != null && !rawChunks.Any(c => c.ChunkId.Equals("iXML", StringComparison.OrdinalIgnoreCase)))
         {
             result.Add(new WavChunkData
             {
-                ChunkId = "ixml",
+                ChunkId = "iXML",
                 Data = metadata.Ixml.Serialize()
             });
         }
 
-        if (metadata.Info != null)
+        if (metadata.Info != null && !rawChunks.Any(c => IsList(c, "INFO")))
         {
             result.Add(new WavChunkData
             {
-                ChunkId = "list",
+                ChunkId = "LIST",
                 Data = metadata.Info.Serialize()
             });
         }
 
-        if (metadata.Cue != null)
+        if (metadata.Cue != null && !rawChunks.Any(c => c.ChunkId.Equals("cue ", StringComparison.OrdinalIgnoreCase)))
         {
             result.Add(new WavChunkData
             {
@@ -724,7 +768,7 @@ public static class WavChunkParsers
             });
         }
 
-        if (metadata.Smpl != null)
+        if (metadata.Smpl != null && !rawChunks.Any(c => c.ChunkId.Equals("smpl", StringComparison.OrdinalIgnoreCase)))
         {
             result.Add(new WavChunkData
             {
@@ -733,24 +777,20 @@ public static class WavChunkParsers
             });
         }
 
-        if (metadata.Adtl != null)
+        if (metadata.Adtl != null && !rawChunks.Any(c => c.ChunkId.Equals("adtl", StringComparison.OrdinalIgnoreCase) || IsList(c, "adtl")))
         {
             result.Add(new WavChunkData
             {
-                ChunkId = "adtl",
-                Data = metadata.Adtl.Serialize()
+                ChunkId = "LIST",
+                Data = [.. "adtl"u8, .. metadata.Adtl.Serialize()]
             });
         }
 
-        foreach (var raw in rawChunks)
-        {
-            var knownIds = new[] { "bext", "ixml", "list", "cue ", "smpl", "adtl" };
-            if (!knownIds.Contains(raw.ChunkId.ToLowerInvariant()))
-            {
-                result.Add(raw);
-            }
-        }
+        result.AddRange(rawChunks);
 
         return result.ToArray();
     }
+
+    private static bool IsList(WavChunkData chunk, string type) =>
+        chunk.ChunkId.Equals("LIST", StringComparison.OrdinalIgnoreCase) && ReadListType(chunk.Data).Equals(type, StringComparison.OrdinalIgnoreCase);
 }

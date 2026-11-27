@@ -1,1 +1,88 @@
-<!-- gitnexus:start --># GitNexus — Code IntelligenceThis project is indexed by GitNexus as **WAVUtils** (212 symbols, 507 relationships, 17 execution flows).> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).## Always Do- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).## Never Do- NEVER edit a function, class, or method before MCP/CLI impact analysis.- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.- NEVER commit before MCP/CLI graph change analysis.## Resources| Resource | Use for || --- | --- || `gitnexus://repo/WAVUtils/context` | Codebase overview, check index freshness || `gitnexus://repo/WAVUtils/clusters` | All functional areas || `gitnexus://repo/WAVUtils/processes` | All execution flows || `gitnexus://repo/WAVUtils/process/{name}` | Step-by-step execution trace |## CLI| Task | Read this skill file || --- | --- || Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` || Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` || Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` || Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` || Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` || Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |<!-- gitnexus:end --># WAVUtils — Developer Notes## Build & Run```bashdotnet build                          # All 3 projectsdotnet run --project WAVUtils.App   # CLI appdotnet run --project WAVUtils.Tray  # System tray app```**No tests.** No test projects, no test framework, no CI. Verify by running the CLI commands manually.## Project Layout| Project | Type | Depends On | Entry ||---------|------|------------|-------|| `WAVUtils.Core` | Class library (net10.0) | NAudio 3.3.0 | — || `WAVUtils.App` | WinForms exe (net10.0-windows) | Core | `Program.Main` — CLI dispatcher || `WAVUtils.Tray` | WinForms exe (net10.0-windows) | Core | `TrayForm` — system tray UI |Solution file: `WAVUtils.slnx` (SDK-style, no traditional `.sln`).## CLI Commands```WAVUtils.exe merge file1.wav file2.wav [...fileN.wav] [output.wav]WAVUtils.exe split merged.wavWAVUtils.exe tc [--from source.wav] file1.wav [...fileN.wav]```- **merge**: Interleaves channels from all input files into one multi-channel WAV. Shorter files padded with silence. bEXT taken from the **last** input file (falls back to the first if the last has none), other typed metadata (iXML, INFO, etc.) from the **first**. Output path defaults to `Merged_YYYYMMDD_HHMMSS.wav` in the first input's directory. Start timecode: LTC (biphase) is decoded from the first 10 s of the **last** input's audio (`LtcDecoder`, port of libltc); result is patched into bext TimeReference (samples since midnight, raw-bytes splice at AES3 offset 342) and duplicated into iXML TIMECODE. If no bext exists but TC was found, a minimal 602-byte spec bext is built. Signal is peak-normalized before decoding (libltc assumes near-full-scale 8-bit input); the in-frame DF flag disambiguates 29.97 vs 30 fps.- **tc**: Decodes LTC from a file's own audio and stamps bext + iXML in place; `--from <source.wav>` decodes once and applies the same shift to sibling tracks. bext is written at spec offsets: 12-char OriginationTime at body+330, TimeReference (64-bit LE) at body+342; non-conforming recorder layouts (Zoom: 8-char time, TR at 338) are detected on read and normalized on write.- **split**: Reads PMAL metadata chunk to determine track layout, extracts each track's channels into separate WAV files in the same directory as the merged file.## Architecture Essentials### PMAL Chunk (Custom Metadata)- `WavMetadataChunk` reads/writes a custom `pmal` chunk appended after the WAV `data` chunk- Stores `TrackMetadata[]` as JSON: per-track file name, channel count, data length, typed metadata, and raw preserved chunks- Split reads PMAL to know how to reconstruct original files### Typed WAV Chunk Parsers`WavChunkParsers` handles 6 chunk types with Parse/Serialize round-trips:- **bEXT** (bext) — Broadcast Extension (AES3 standard, 602 bytes minimum)- **iXML** (ixml) — Interchange XML metadata- **INFO** (list) — RIFF key-value tags (ISFT, IART, INAM, etc.)- **cue** (cue ) — Cue points- **smpl** (smpl) — Sample loop data- **adtl** (adtl) — Audio Data Link List (labels, notes)Chunk ordering in merged output:1. Pre-data: bEXT → iXML → INFO2. data3. Post-data: cue → smpl → adtl4. PMAL (after everything)### Merge Logic (`MergeCommand.cs`)- Reads all files with `WaveFileReader`, validates matching sample rate + bit depth- Calculates max samples per channel across all files- Builds entire file in-memory as `byte[]`, interleaves samples track-by-track- Writes typed metadata chunks from first file's metadata, except bEXT which comes from the last file### Split Logic (`SplitCommand.cs`)- Reads PMAL chunk to get track layout- Uses `WaveFileWriter` to write each track's channels- Appends typed metadata chunks and raw preserved chunks after writing audio data### Key Constraints- **Odd-length chunks must be padded** with a null byte to even boundary — done everywhere (merge, split, parsers)- **Little-endian** byte order for all chunk sizes (`BitConverter.IsLittleEndian` guard in `WriteInt32LE`)- **NAudio 3.3.0 has no bEXT/iXML support** — all typed chunk parsing is manual- All source files use implicit usings and nullable reference types (no `.editorconfig` needed)## Gotchas- `MergeCommand.Run` is `async Task<string>` but called via `Task.Run()` in the UI thread — don't change to fire-and-forget- `SplitCommand.AppendChunksToOutput` opens files with `FileMode.Append` — must run after `WaveFileWriter` is fully closed and flushed- `WavChunkParsers.ParseKnownChunks` currently passes all chunks through as "other" — the switch statement doesn't actually parse into typed metadata (that's done by `ExtractTypedMetadata`). This method is unused but kept for compatibility.- Progress window uses `Application.DoEvents()` — not ideal but functional for this simple CLI+UI hybrid- Russian UI strings throughout (`Program.cs:18-23`) — don't localize without being asked
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **WAVUtils** (212 symbols, 507 relationships, 17 execution flows).
+
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+
+## Always Do
+
+- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
+
+## Resources
+
+| Resource | Use for |
+| --- | --- |
+| `gitnexus://repo/WAVUtils/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/WAVUtils/clusters` | All functional areas |
+| `gitnexus://repo/WAVUtils/processes` | All execution flows |
+| `gitnexus://repo/WAVUtils/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->
+
+# WAVUtils developer notes
+
+## Build and test
+
+Run the [Windows regression gate](README.md#build-and-test) after changes. The
+solution includes `WAVUtils.Tests`; no test requires running Setup or touching
+production recordings. See [architecture](ARCHITECTURE.md) for the App, Core,
+and Tray boundaries and [the master plan](docs/plans/MASTER.md) for finding IDs.
+
+- In WinForms layout tests, request a scaled width beyond the native tracking
+  limit and assert that Windows capped it. Testing a fixed scale on a wide
+  monitor alone can miss controls clipped after the cap.
+
+## WAV verification
+
+- Verify WAV headers and timecode with independently authored bytes and
+  `ffprobe`. A Parse/Serialize round trip can agree on the same wrong layout.
+- Use standard Broadcast Wave offsets from [EBU Tech 3285](https://tech.ebu.ch/docs/tech/tech3285.pdf),
+  pp. 9–11: eight-byte OriginationTime at body offset 330, TimeReference at
+  338, Version at 346, and UMID at 348. Do not silently migrate legacy stamps.
+- Validate raw FourCC bytes before ASCII decoding: .NET's replacement `?`
+  can otherwise turn an invalid byte into a valid chunk identifier.
+
+## Windows scripts
+
+- Keep scripts used by Windows PowerShell 5.1 ASCII or save non-ASCII scripts
+  as UTF-8 with BOM. Check parser text as well as parse errors; both a corrupted
+  string and its intended replacement can be syntactically valid.
+- Use `-LiteralPath` for exact paths containing `*` or brackets. For a literal
+  registry key, use `Registry.SetValue` to create or update a value without
+  clearing other values with `New-Item -Force`.
+
+## Settings
+
+- Keep startup defaults out of the settings write path. Re-read the stored
+  preferences strictly before saving so recovery never overwrites an unreadable
+  configuration.
+
+## Packaging
+
+- Check that each `win-x64` release lock exists before publishing: NuGet can
+  generate a missing lock even in locked mode. Keep release locks separate
+  from development locks.

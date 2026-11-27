@@ -1,1 +1,75 @@
-# WAVUtils Architecture## OverviewWAVUtils is a C# .NET 10.0 desktop application for merging and splitting multi-channel WAV files. It consists of three projects: a CLI application (`WAVUtils.App`), a core library (`WAVUtils.Core`), and a system tray application (`WAVUtils.Tray`). The index contains **212 nodes**, **507 edges**, **12 clusters**, and **17 execution flows**.## Project Structure```WAVUtils/├── WAVUtils.slnx                          # Solution file├── WAVUtils.App/                          # CLI application│   ├── Program.cs                           # Entry point, CLI commands│   ├── ProgressWindow.cs                    # Progress dialog UI│   ├── TrayNotification.cs                  # Notification helpers│   └── WAVUtils.App.csproj├── WAVUtils.Core/                         # Core library│   ├── MergeCommand.cs                      # Merge operation logic│   ├── MergedWaveProvider.cs                # NAudio WaveProvider for merging│   ├── SplitCommand.cs                      # Split operation logic│   ├── TcCommand.cs                           # LTC timecode stamping (bext/iXML in place)│   ├── LtcDecoder.cs                          # LTC (biphase) decoder, port of libltc│   ├── WavChunkParsers.cs                   # Typed WAV chunk parsers│   ├── WavMetadataChunk.cs                  # WAV chunk I/O│   ├── WaveFormatExtensions.cs              # Multi-channel WaveFormat helpers│   └── WAVUtils.Core.csproj└── WAVUtils.Tray/                         # System tray application    ├── Program.cs                           # Entry point    ├── TrayForm.cs                          # Tray UI    └── WAVUtils.Tray.csproj```## Architecture Diagram```mermaidgraph TD    subgraph "WAVUtils.App - CLI"        A[Program.Main] --> B[RunMerge]        A --> C[RunSplit]        B --> D[ProgressWindow]        C --> D        D --> D1[SetOperation]        D --> D2[AddFile]        D --> D3[Complete]        D --> D4[Fail]    end    subgraph "WAVUtils.Core - Merge"        B --> E[MergeCommand.Run]        E --> E1[BuildMergedFile]        E1 --> E2[WriteChunk]        E --> E3[WavMetadataChunk.ReadWavChunks]        E --> E4[TrackMetadata]    end    subgraph "WAVUtils.Core - Split"        C --> F[SplitCommand.Run]        F --> F1[ReadPmalChunks]        F --> F2[AppendChunksToOutput]        F2 --> F3[WriteChunkToStream]        F2 --> F4[WavChunkParsers.Serialize]    end    subgraph "WAVUtils.Core - Metadata"        E3 --> G[WavMetadataChunk.ReadChunksFromStream]        G --> G1[WavChunkData]        G --> G2[WavChunksResult]        E3 --> H[WavChunkParsers.ExtractTypedMetadata]        H --> H1[Parse]        H --> H2[WavFileMetadata]    end    subgraph "WAVUtils.Core - Chunk Parsers"        H1 --> I1[BextChunkData]        H1 --> I2[IxmlChunkData]        H1 --> I3[InfoChunkData]        H1 --> I4[CueChunkData]        H1 --> I5[CuePointData]        H1 --> I6[SmplChunkData]        H1 --> I7[AdtlChunkData]        I1 --> I1a[ReadAsciiNullTerminated]        I2 --> I1a        I3 --> I1a    end    subgraph "WAVUtils.Core - I/O"        F3 --> J[WriteInt32LE]        G --> J        E4 --> K[WaveFormatExtensions.CreateMultiChannel]    end    subgraph "WAVUtils.Tray - System Tray"        L[TrayForm] --> L1[OpenLogFile]        L --> L2[ShowAbout]        L --> L3[Exit]    end```## Execution Flows### 1. Merge Flow (7 steps)```Program.Main → RunMerge → MergeCommand.Run → BuildMergedFile → WriteChunk```1. `Program.Main` parses CLI args and dispatches to `RunMerge`2. `MergeCommand.Run` reads WAV metadata via `WavMetadataChunk.ReadWavChunks`3. `ExtractTypedMetadata` parses bEXT, iXML, INFO, cue, smpl, adtl chunks4. `BuildMergedFile` iterates input files and writes merged output5. `WriteChunk` writes each WAV chunk to the output stream### 2. Split Flow (7 steps)```Program.Main → RunSplit → SplitCommand.Run → ReadPmalChunks → AppendChunksToOutput```1. `Program.Main` dispatches to `RunSplit`2. `SplitCommand.Run` reads per-channel metadata3. `ReadPmalChunks` identifies channel layout4. `AppendChunksToOutput` writes each channel to a separate output file5. `WriteChunkToStream` serializes chunks to binary### 3. Typed Metadata Extraction (7 steps)```Program.Main → WavChunkParsers.ExtractTypedMetadata → Parse → BextChunkData.ReadAsciiNullTerminated```1. `ReadWavChunks` reads raw WAV chunks from stream2. `ExtractTypedMetadata` dispatches to typed parsers3. Each chunk type (bEXT, iXML, INFO, cue, smpl, adtl) has its own parser class4. `ReadAsciiNullTerminated` handles string fields in chunk data## Key Components### MergeCommand (`MergeCommand.cs:11-276`)Handles the merge operation. Reads metadata from all input files, combines audio data, and writes typed metadata chunks in correct WAV structure positions.**Methods:**- `Run` — Entry point for merge operation- `BuildMergedFile` — Orchestrates the merge of multiple WAV files- `WriteChunk` — Writes individual WAV chunks to output### SplitCommand (`SplitCommand.cs:11-206`)Handles splitting multi-channel WAV files into per-channel files.**Methods:**- `Run` — Entry point for split operation- `ReadPmalChunks` — Reads PMAL (per-channel) metadata- `AppendChunksToOutput` — Appends typed metadata chunks to output files- `WriteChunkToStream` — Serializes a chunk to a binary stream### WavMetadataChunk (`WavMetadataChunk.cs:96-291`)Handles low-level WAV chunk reading and writing.**Methods:**- `Read` — Reads a single WAV chunk- `ReadWavChunks` — Reads all chunks, returns typed metadata- `ReadWavChunksRaw` — Reads all chunks as raw bytes- `Write` — Writes a WAV chunk to stream- `WriteChunksToStream` — Writes multiple chunks- `WriteInt32LE` — Writes a 32-bit integer in little-endian format### WavChunkParsers (`WavChunkParsers.cs:578-739`)Typed parsers for WAV metadata chunks.**Parsed chunk types:**- `BextChunkData` — Broadcast Extension (bEXT)- `IxmlChunkData` — iXML metadata- `InfoChunkData` — INFO chunk- `CueChunkData` / `CuePointData` — Cue points- `SmplChunkData` / `SmplLoopData` — Sampler data- `AdtlChunkData` / `AdtlLabelData` / `AdtlNoteData` — Audio Data Transfer Link**Methods:**- `ExtractTypedMetadata` — Entry point for typed metadata extraction- `SerializeTypedMetadata` — Serializes typed metadata back to chunks- `Parse` — Dispatches to specific chunk parsers- `Serialize` — Serializes a chunk to byte array### TrackMetadata (`TrackMetadata` in `WavMetadataChunk.cs:12-69`)Holds per-track metadata including channel info and typed chunk data (bext, ixml, info, cue, smpl, adtl).### MergedWaveProvider (`MergedWaveProvider.cs:9-81`)NAudio `WaveProvider` implementation for streaming merged audio data.### WaveFormatExtensions (`WaveFormatExtensions.cs:9-34`)Helpers for creating multi-channel `WaveFormat` objects.## Data Flow```Input WAV Files    │    ▼WavMetadataChunk.ReadWavChunks    │    ├── Raw chunks → WavChunkData    │    └── Typed metadata → ExtractTypedMetadata            │            ├── BextChunkData (bEXT)            ├── IxmlChunkData (iXML)            ├── InfoChunkData (INFO)            ├── CueChunkData + CuePointData (cue)            ├── SmplChunkData + SmplLoopData (smpl)            └── AdtlChunkData + AdtlLabelData + AdtlNoteData (adtl)                    │                    ▼            TrackMetadata (per-track)                    │                    ▼            MergeCommand / SplitCommand                    │                    ▼            Output WAV Files (with typed chunks in correct positions)```## Dependencies| Edge Type | Count | Description ||-----------|-------|-------------|| ACCESSES | 112 | Field/property read/write || STEP_IN_PROCESS | 88 | Process execution steps || CALLS | 64 | Method calls || HAS_PROPERTY | 62 | Class properties || HAS_METHOD | 54 | Class methods || MEMBER_OF | 50 | Symbol membership || USES | 13 | External dependencies |## Clusters| Cluster | Symbols | Cohesion ||---------|---------|----------|| WAVUtils.Core | 12 | 0.88 || WAVUtils.Core | 10 | 0.90 || WAVUtils.App | 9 | 0.92 || WAVUtils.Core | 5 | 0.73 || WAVUtils.Core | 4 | 0.86 |## Technology Stack- **Language:** C#- **Framework:** .NET 10.0- **Audio Library:** NAudio 3.3.0- **UI:** WinForms- **Architecture:** CLI + Library + System Tray## Design Notes- **No bEXT/iXML in NAudio 3.3.0:** Manual parsing and serialization implemented in `WavChunkParsers.cs`- **bext spec offsets:** Time fields are read/written at AES3 / EBU Tech 3285 offsets (OriginationTime 12-char at body+330, TimeReference at body+342) so DaVinci Resolve and libsndfile see the timecode; non-conforming recorder layouts (Zoom F6/H6: 8-char time, TR at 338) are detected on read and normalized on write- **Timecode on merge:** `MergeCommand` decodes LTC from the first 10 s of the last input and stamps the merged file; `TcCommand` does the same per-file with an optional `--from` source shift- **Correct chunk ordering:** Merge writes typed metadata chunks in the positions specified by WAV specification- **Per-track metadata:** Each track in a multi-channel file can have its own typed metadata- **Progress tracking:** `ProgressWindow` provides feedback during merge/split operations- **System tray:** `WAVUtils.Tray` provides a background notification UI
+# WAVUtils architecture
+
+If you maintain WAVUtils, use this overview to trace WAV processing, the
+Windows desktop entry points, and the boundaries that protect existing files.
+It does not describe migration of previously stamped recordings. For command
+examples, see the [README](README.md).
+
+## Solution layout
+
+The .NET 10 solution contains these projects:
+
+| Project | Responsibility |
+| --- | --- |
+| `WAVUtils.Core` | Validates RIFF/RF64, processes samples and metadata, stores settings, and verifies update downloads. Uses NAudio for WAV output. |
+| `WAVUtils.App` | Parses commands, collects Explorer merge inputs, and runs operations in a WinForms progress window. |
+| `WAVUtils.Tray` | Manages update preferences, prompts for download and Setup, and offers a manual fallback. |
+| `WAVUtils.Tests` | Exercises independently authored WAV fixtures, Windows controls, and release scripts without running Setup. |
+
+## WAV operations
+
+`WavMetadataChunk.ReadFile` validates the container and records the audio offset
+and length. In RF64, `ds64` replaces a 32-bit value only if that field is
+`0xFFFFFFFF`. Core processes audio in frame-aligned blocks; `Rf64WaveFileWriter`
+writes RIFF or RF64 according to the finalized size. Each operation checks
+cancellation between blocks, and each writer finalizes and flushes its temporary
+file before publication.
+
+- `MergeCommand` interleaves inputs in argument order and pads shorter inputs
+  with the format's silence value. It uses `bext` from the last input, falling
+  back to the first. The first input supplies the remaining top-level source
+  metadata. Merge checks the last input for linear timecode (LTC), channel by
+  channel, and stamps `bext` and iXML when it finds a valid signal.
+- `SplitCommand` validates the `pmal` track table and all destination names.
+  It reads the merged audio once and restores the original length, format bytes,
+  and metadata of each track. For older PMAL records, it can derive the format
+  from the merged file and use typed metadata when raw chunks are absent.
+- `TcCommand` updates `bext` and iXML without changing the audio bytes. It
+  subtracts the donor's original recorder reference from its decoded timecode
+  and adds that offset to each target's original reference. Each stamped file
+  stores its original `bext` (if present), the original file's SHA-256, and
+  stamping parameters in `wtcp`. The command verifies the retained `.bak`
+  before using the provenance and keeps a rollback copy until it verifies
+  the replacement.
+
+Merge and split do not overwrite existing destinations. Split publishes files
+individually, and timecode stamping replaces targets individually. If a batch
+stops after publication begins, completed outputs or earlier stamps can remain.
+See [the WAV operations decision](docs/adr/0001-safe-wav-operations.md) for
+format compatibility, backups, and cancellation limits.
+
+## Desktop settings and updates
+
+App and Tray share Core's localized resources and read settings from
+`%LOCALAPPDATA%\WAVUtils\config.json`. An executable-adjacent configuration is a
+read-only fallback. When writing a preference, Tray preserves the other keys.
+
+Setup installs files and shortcuts for the computer. The separate PowerShell
+scripts change Explorer verbs and Tray autostart only for the account running them.
+
+Tray's startup check does not download an installer without approval. Tray
+accepts only the version-matching installer from the official release. It
+checks the length, SHA-256, and Portable Executable (PE) header, and asks again
+before starting Setup. After Tray releases its upgrade mutex, it rechecks
+the digest and header before launch. Download or launch failure offers the
+official release page; cancellation and declining elevation do not. See
+[the desktop settings and updates decision](docs/adr/0002-desktop-settings-and-updates.md)
+for the trust and installation limits.
+
+## Verification
+
+Run the [Windows build and test gate](README.md#build-and-test). For header or
+timecode changes, use independently authored fixtures and inspect them with
+`ffprobe`; a parser and its serializer can agree on the same incorrect layout.
+See [the master plan](docs/plans/MASTER.md) for the results and external checks
+that remain open.

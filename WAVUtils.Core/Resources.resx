@@ -86,39 +86,65 @@
     <value>File must be mono: {0}</value>
   </data>
   <data name="UpdateChecking" xml:space="preserve">
-    <value>Проверка обновлений...</value>
+    <value>Checking for updates...</value>
   </data>
   <data name="UpdateAvailable" xml:space="preserve">
-    <value>Доступно обновление: {0} (текущая: {1})</value>
+    <value>Update available: {0} (installed: {1})</value>
   </data>
   <data name="UpdateUpToDate" xml:space="preserve">
-    <value>Установлена последняя версия.</value>
+    <value>You have the latest version.</value>
   </data>
   <data name="UpdateCheckFailed" xml:space="preserve">
-    <value>Не удалось проверить обновления. Попробуйте позже.</value>
+    <value>Couldn't check for updates. Try again later.</value>
   </data>
   <data name="UpdateCheckError" xml:space="preserve">
-    <value>Ошибка проверки обновлений: {0}</value>
+    <value>Couldn't check for updates: {0}</value>
   </data>
   <data name="UpdateDownloadStart" xml:space="preserve">
-    <value>Загрузка обновления...</value>
+    <value>Downloading update...</value>
   </data>
   <data name="UpdateDownloadComplete" xml:space="preserve">
-    <value>Загрузка завершена. Установка...</value>
+    <value>Download verified.</value>
   </data>
   <data name="UpdateInstallSuccess" xml:space="preserve">
-    <value>Обновление установлено. Перезапустите приложение.</value>
+    <value>Update installed. Restart the application.</value>
   </data>
   <data name="UpdateInstallFailed" xml:space="preserve">
-    <value>Не удалось установить обновление. Загрузите вручную.</value>
+    <value>Couldn't start Setup.</value>
   </data>
   <data name="UpdateManualDownload" xml:space="preserve">
-    <value>Загрузить вручную с GitHub</value>
+    <value>Open the official release page to install manually?</value>
   </data>
   <data name="UpdateCheckNow" xml:space="preserve">
-    <value>Проверить &amp;обновления</value>
+    <value>Check for &amp;updates</value>
   </data>
   <data name="UpdateAutoCheck" xml:space="preserve">
-    <value>&amp;Автоматически проверять обновления</value>
+    <value>&amp;Automatically check for updates</value>
   </data>
+  <data name="AppTitle" xml:space="preserve"><value>WAV Utils</value></data>
+  <data name="AppBanner" xml:space="preserve"><value>WAV Utils - Multi-channel WAV manager</value></data>
+  <data name="AppMergeOperation" xml:space="preserve"><value>Merging WAV files...</value></data>
+  <data name="AppSplitOperation" xml:space="preserve"><value>Extracting tracks...</value></data>
+  <data name="AppTimecodeOperation" xml:space="preserve"><value>Stamping timecode...</value></data>
+  <data name="TimecodeCheckingOriginal" xml:space="preserve"><value>Checking original WAV</value></data>
+  <data name="TimecodeWriting" xml:space="preserve"><value>Writing timecode WAV</value></data>
+  <data name="TimecodeSavingBackup" xml:space="preserve"><value>Saving original backup</value></data>
+  <data name="TimecodeVerifying" xml:space="preserve"><value>Verifying timecode WAV</value></data>
+  <data name="AppMergeArgError" xml:space="preserve"><value>Usage: WAVUtils merge file1.wav file2.wav [...] [--out output.wav]</value></data>
+  <data name="AppSplitArgError" xml:space="preserve"><value>Usage: WAVUtils split merged.wav [--output-dir directory]</value></data>
+  <data name="AppUnknownCommand" xml:space="preserve"><value>Unknown command: {0}</value></data>
+  <data name="ProgressComplete" xml:space="preserve"><value>Done!</value></data>
+  <data name="ProgressError" xml:space="preserve"><value>Operation failed. Details are listed below.</value></data>
+  <data name="ProgressCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="ProgressClose" xml:space="preserve"><value>Close</value></data>
+  <data name="ProgressCancelled" xml:space="preserve"><value>Cancelled. Completed files, if any, are retained.</value></data>
+  <data name="ProgressCancelling" xml:space="preserve"><value>Cancelling...</value></data>
+  <data name="ProgressLabel" xml:space="preserve"><value>Operation progress</value></data>
+  <data name="TrayLog" xml:space="preserve"><value>Log</value></data>
+  <data name="TrayAbout" xml:space="preserve"><value>About</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>Exit</value></data>
+  <data name="AboutTitle" xml:space="preserve"><value>About</value></data>
+  <data name="AboutText" xml:space="preserve"><value>WAV Utils - Multi-channel WAV manager. Merge, split, and stamp WAV timecode.</value></data>
+  <data name="UpdateDownloadPrompt" xml:space="preserve"><value>Download and verify the installer?</value></data>
+  <data name="UpdateVerifiedReady" xml:space="preserve"><value>The installer size, SHA-256, and PE envelope are verified. Close WAVUtils Tray and start setup?</value></data>
 </root>

@@ -1,34 +1,42 @@
-## What's New in 1.2.0
+## What's new in 1.3.0
 
-### Timecode support (LTC / bext / iXML)
+### Before you upgrade
 
-- **New: `tc` command** - decodes LTC (biphase) timecode from the first seconds of a WAV file's audio and stamps bext `TimeReference` + `OriginationTime` + iXML `TIMECODE` in place, so files from a free-running recorder join the timecode generator's timeline: `WAVUtils.exe tc track1.wav track2.wav`
-- **New: `tc --from <source.wav>`** - decodes the timecode once from a source track and applies the same shift to sibling tracks (lav mics) that start with it but carry no LTC themselves
-- **New: merge stamps Start TC automatically** - LTC decoded from the last input's audio is patched into the merged file's bext and iXML
-- **Fixed: bext `TimeReference` was written at a non-spec offset (338)** - spec readers (DaVinci Resolve, Soundminer, libsndfile) saw timecode as 0. bext is now read/written at the correct AES3 / EBU Tech 3285 offsets (12-char `OriginationTime` at 330, `TimeReference` at 342); non-conforming recorder files (Zoom F6/H6: 8-char time, TR at 338) are detected and normalized
+Files stamped with the incorrect `bext` layout in earlier versions are not
+migrated automatically. To stamp them again, start from verified originals or
+backups. Keep the first `.bak` beside each file stamped by this version.
 
-### Fixes
+Setup no longer changes the Explorer menu or Tray autostart. If you use either
+feature, [configure it for your Windows account](https://github.com/wtfsoftware/WAVUtils/blob/v1.3.0/README.md#configure-explorer-and-tray-for-your-account).
+Old settings aren't migrated. After an in-place upgrade, the uninstaller can
+still apply registry cleanup recorded by an older Setup to the account that
+runs it. If you use WAVUtils without installing it, upgrade by extracting the
+portable ZIP instead of running Setup.
 
-- **Fixed: split failed on every merged file** ("PMAL not found") - the reader hardcoded a plain fmt+data header and broke on merged files carrying bext/iXML/INFO before the data chunk; it now walks the real chunk list
-- **Fixed: split wrote duplicate bext chunks** (typed + raw preserved) - raw chunks already covered by typed metadata are skipped
-- **Fixed: merge launched once per selected file** - Explorer invokes file-class context menu verbs once per item; the first instance now collects the whole selection over a named pipe and performs a single merge
-- **Fixed: merged WAV files had an invalid RIFF header and corrupt audio data** (fmt chunk written with 24-byte fields; the interleave loop rewrote the first frame and metadata overwrote the start of the audio), so output was silent noise that standard players could not open
-- **Fixed: channel order no longer matches the selection** - merged tracks now follow the order the files were selected in Explorer
-- **Fixed: process crash on merge/split errors** (progress window error path)
-- **Fixed: process could hang after completing** without ever closing its progress window
+### Added
 
-## Download
+- Use `merge --out` to name the output and `split --output-dir` to choose a
+  restore folder. Unambiguous positional merge output still works.
+- Merge and split stream WAV data, including RF64 files larger than the RIFF
+  limit. The progress window shows the work and offers cancellation.
 
-- **Installer**: WAVUtils-Setup-1.2.0.exe (Windows x64)
-- **Portable**: WAVUtils-1.2.0-Portable.zip (no installation required)
+### Fixed
 
-> Note: reinstalling re-registers the context menu command; machines with an older install need the new installer (or `Install.ps1`) re-run to pick up the single-instance fix.
+- Merge and split preserve channel order and restore original track lengths and
+  metadata. Neither command overwrites an existing output.
+- Broadcast Wave timecode uses the standard `bext` layout. Repeating the same
+  `tc --from` no longer applies the time shift twice.
+- The WAV progress and update download dialogs fit their controls when Windows
+  limits the window width at high display scaling.
+- Unreadable settings don't prevent startup or trigger automatic update checks.
+  Tray verifies the installer against GitHub's SHA-256 digest and asks before
+  downloading it and again before launching it.
 
-## CLI Usage
+### Download
 
-```
-WAVUtils.exe merge file1.wav file2.wav [...fileN.wav] [output.wav]
-WAVUtils.exe split merged.wav
-WAVUtils.exe tc [--from source.wav] file1.wav [...fileN.wav]
-WAVUtils.exe check-update
-```
+- `WAVUtils-1.3.0-Portable.zip`: Extract and run on x64 Windows without installing.
+- `WAVUtils-Setup-1.3.0.exe`: Install for all accounts; administrator rights are required.
+
+Both packages include the .NET runtime. See the
+[WAVUtils usage guide](https://github.com/wtfsoftware/WAVUtils/blob/v1.3.0/README.md)
+and the [changes since v1.2.0](https://github.com/wtfsoftware/WAVUtils/compare/v1.2.0...v1.3.0).

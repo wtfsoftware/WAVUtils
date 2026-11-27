@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+﻿using System.Buffers.Binary;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NAudio.Wave;
 
@@ -66,6 +68,10 @@ public class TrackMetadata
     /// </summary>
     [JsonPropertyName("chunks")]
     public List<WavChunkData> Chunks { get; set; } = new();
+
+    [JsonPropertyName("format")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public byte[]? FormatData { get; set; }
 }
 
 /// <summary>
@@ -87,6 +93,9 @@ public class WavChunksResult
 {
     public List<WavChunkData> Chunks { get; set; } = new();
     public WavFileMetadata TypedMetadata { get; set; } = new();
+    internal byte[] FormatData { get; set; } = [];
+    internal long DataOffset { get; set; }
+    internal long DataLength { get; set; }
 }
 
 /// <summary>
@@ -96,6 +105,15 @@ public class WavChunksResult
 public static class WavMetadataChunk
 {
     private const string ChunkId = "pmal";
+    internal const int MaxMetadataBytes = 64 * 1024 * 1024;
+    internal const int MaxTracks = 256;
+
+    internal static string ReadChunkId(ReadOnlySpan<byte> bytes)
+    {
+        foreach (byte value in bytes)
+            if (value is < 32 or > 126) throw new InvalidDataException("Invalid chunk identifier.");
+        return Encoding.ASCII.GetString(bytes);
+    }
 
     /// <summary>
     /// Reads all chunks from a WAV file, excluding 'fmt ' and 'data' chunks.
@@ -103,17 +121,8 @@ public static class WavMetadataChunk
     /// </summary>
     public static WavChunksResult ReadWavChunks(string filePath)
     {
-        var chunks = new List<WavChunkData>();
         using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        ReadChunksFromStream(fs, chunks);
-
-        var typedMetadata = WavChunkParsers.ExtractTypedMetadata(chunks);
-
-        return new WavChunksResult
-        {
-            Chunks = chunks,
-            TypedMetadata = typedMetadata
-        };
+        return ReadFile(fs);
     }
 
     /// <summary>
@@ -123,51 +132,123 @@ public static class WavMetadataChunk
     [Obsolete("Use ReadWavChunks(string) which returns typed metadata as well.")]
     public static List<WavChunkData> ReadWavChunksRaw(string filePath)
     {
-        var chunks = new List<WavChunkData>();
         using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        ReadChunksFromStream(fs, chunks);
-        return chunks;
+        return ReadFile(fs).Chunks;
     }
 
-    private static void ReadChunksFromStream(Stream stream, List<WavChunkData> chunks)
+    internal static WavChunksResult ReadFile(Stream stream, CancellationToken cancellationToken = default)
     {
-        // Skip RIFF header (12 bytes)
-        stream.Seek(12, SeekOrigin.Begin);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!stream.CanSeek || stream.Length < 12) throw new InvalidDataException("Truncated WAV header.");
+        stream.Position = 0;
+        Span<byte> header = stackalloc byte[12];
+        stream.ReadExactly(header);
+        bool rf64 = header[..4].SequenceEqual("RF64"u8);
+        if ((!rf64 && !header[..4].SequenceEqual("RIFF"u8)) || !header[8..].SequenceEqual("WAVE"u8))
+            throw new InvalidDataException("Expected RIFF/RF64 WAVE.");
+        uint riffSize = BinaryPrimitives.ReadUInt32LittleEndian(header[4..]);
+        if ((!rf64 || riffSize != uint.MaxValue) && riffSize != stream.Length - 8)
+            throw new InvalidDataException("RIFF size does not match the file.");
 
-        while (stream.Position < stream.Length - 8)
+        ulong rf64DataLength = 0, rf64SampleCount = 0;
+        var sizes = new Dictionary<string, Queue<long>>(StringComparer.Ordinal);
+        if (rf64)
         {
-            long chunkStart = stream.Position;
-            byte[] id = new byte[4];
-            if (stream.Read(id, 0, 4) < 4) break;
-            
-            byte[] lenBytes = new byte[4];
-            if (stream.Read(lenBytes, 0, 4) < 4) break;
-
-            string chunkName = System.Text.Encoding.ASCII.GetString(id);
-            int chunkLength = BitConverter.ToInt32(lenBytes, 0);
-            
-            // Skip 'fmt ' and 'data' chunks
-            if (chunkName != "fmt " && chunkName != "data")
+            if (stream.Length - stream.Position < 8) throw new InvalidDataException("Missing ds64 chunk.");
+            stream.ReadExactly(header[..8]);
+            uint size = BinaryPrimitives.ReadUInt32LittleEndian(header[4..]);
+            if (!header[..4].SequenceEqual("ds64"u8) || size < 28 || size > 16 * 1024 * 1024 ||
+                (long)size + (size & 1) > stream.Length - stream.Position)
+                throw new InvalidDataException("Invalid RF64 ds64 chunk.");
+            byte[] ds64 = new byte[(int)size];
+            stream.ReadExactly(ds64);
+            ulong largeRiffSize = BinaryPrimitives.ReadUInt64LittleEndian(ds64);
+            rf64DataLength = BinaryPrimitives.ReadUInt64LittleEndian(ds64.AsSpan(8));
+            rf64SampleCount = BinaryPrimitives.ReadUInt64LittleEndian(ds64.AsSpan(16));
+            uint tableCount = BinaryPrimitives.ReadUInt32LittleEndian(ds64.AsSpan(24));
+            if ((riffSize == uint.MaxValue && largeRiffSize != (ulong)(stream.Length - 8)) ||
+                28L + tableCount * 12L != size)
+                throw new InvalidDataException("Invalid ds64 lengths.");
+            for (int entry = 0; entry < tableCount; entry++)
             {
-                byte[] chunkData = new byte[chunkLength];
-                stream.Read(chunkData, 0, chunkLength);
-                chunks.Add(new WavChunkData
+                int offset = 28 + entry * 12;
+                string id = ReadChunkId(ds64.AsSpan(offset, 4));
+                ulong length = BinaryPrimitives.ReadUInt64LittleEndian(ds64.AsSpan(offset + 4));
+                if (length > long.MaxValue) throw new InvalidDataException("RF64 chunk length is too large.");
+                if (!sizes.TryGetValue(id, out var queue)) sizes.Add(id, queue = new Queue<long>());
+                queue.Enqueue((long)length);
+            }
+            if ((size & 1) != 0) stream.Position++;
+        }
+
+        var result = new WavChunksResult();
+        long metadataBytes = 0;
+        int chunkCount = 0;
+        bool hasData = false;
+        while (stream.Position < stream.Length)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (++chunkCount > 65536 || stream.Length - stream.Position < 8)
+                throw new InvalidDataException("Too many chunks or a truncated chunk header.");
+            stream.ReadExactly(header[..8]);
+            string id = ReadChunkId(header[..4]);
+            uint declared = BinaryPrimitives.ReadUInt32LittleEndian(header[4..]);
+            long length = declared;
+            if (declared == uint.MaxValue)
+            {
+                if (!rf64) throw new InvalidDataException("RF64 length without ds64.");
+                if (id == "data" && !hasData)
                 {
-                    ChunkId = chunkName,
-                    Data = chunkData
-                });
+                    if (rf64DataLength > long.MaxValue) throw new InvalidDataException("RF64 data length is too large.");
+                    length = (long)rf64DataLength;
+                }
+                else if (sizes.TryGetValue(id, out var queue) && queue.Count > 0) length = queue.Dequeue();
+                else throw new InvalidDataException("Missing ds64 table entry.");
+            }
+            long body = stream.Position;
+            long remaining = stream.Length - body;
+            if (length < 0 || length > remaining || (length & 1) > remaining - length)
+                throw new InvalidDataException($"Truncated {id} chunk or padding.");
+            if (id == "data")
+            {
+                if (hasData) throw new InvalidDataException("Duplicate data chunk.");
+                hasData = true;
+                result.DataOffset = body;
+                result.DataLength = length;
             }
             else
             {
-                stream.Seek(chunkLength, SeekOrigin.Current);
+                if (id == "ds64") throw new InvalidDataException("Unexpected ds64 chunk.");
+                metadataBytes += length;
+                if (length > (id == ChunkId ? MaxMetadataBytes : 16 * 1024 * 1024) || metadataBytes > MaxMetadataBytes)
+                    throw new InvalidDataException("WAV metadata exceeds the safety budget.");
+                byte[] data = new byte[(int)length];
+                stream.ReadExactly(data);
+                if (id == "fmt ")
+                {
+                    if (result.FormatData.Length != 0 || data.Length < 16) throw new InvalidDataException("Invalid or duplicate fmt chunk.");
+                    result.FormatData = data;
+                }
+                // The RF64 writer's empty reservation is structural, not source metadata.
+                else if (!(id == "JUNK" && body == 20 && length == 28 && data.All(b => b == 0)))
+                    result.Chunks.Add(new WavChunkData { ChunkId = id, Data = data });
             }
-
-            // Align to even boundary
-            if (chunkLength % 2 != 0)
-            {
-                stream.Seek(1, SeekOrigin.Current);
-            }
+            stream.Position = body + length;
+            if ((length & 1) != 0 && stream.ReadByte() != 0)
+                throw new InvalidDataException($"Nonzero {id} padding.");
         }
+        if (!hasData || result.FormatData.Length == 0 || sizes.Values.Any(queue => queue.Count != 0))
+            throw new InvalidDataException("Missing WAV format/data or unused ds64 entries.");
+        int align = BinaryPrimitives.ReadUInt16LittleEndian(result.FormatData.AsSpan(12));
+        if (rf64 && align > 0 && result.Chunks.FirstOrDefault(chunk => chunk.ChunkId == "fact") is { } fact)
+        {
+            if (fact.Data.Length < 4) throw new InvalidDataException("Truncated RF64 fact chunk.");
+            uint count = BinaryPrimitives.ReadUInt32LittleEndian(fact.Data);
+            if ((count == uint.MaxValue ? rf64SampleCount : count) != (ulong)(result.DataLength / align))
+                throw new InvalidDataException("RF64 sample count does not match the audio.");
+        }
+        result.TypedMetadata = WavChunkParsers.ExtractTypedMetadata(result.Chunks);
+        return result;
     }
 
     /// <summary>
@@ -175,17 +256,7 @@ public static class WavMetadataChunk
     /// </summary>
     public static void Write(Stream wavStream, TrackMetadata[] metadata)
     {
-        var json = JsonSerializer.Serialize(metadata, new JsonSerializerOptions
-        {
-            WriteIndented = false
-        });
-        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-
-        // "pmal" chunk header
-        byte[] chunkIdBytes = System.Text.Encoding.ASCII.GetBytes(ChunkId);
-        wavStream.Write(chunkIdBytes, 0, 4);
-        WriteInt32LE(wavStream, bytes.Length);
-        wavStream.Write(bytes, 0, bytes.Length);
+        WriteChunksToStream(wavStream, [new() { ChunkId = ChunkId, Data = SerializeTracks(metadata) }]);
     }
 
     /// <summary>
@@ -193,36 +264,84 @@ public static class WavMetadataChunk
     /// </summary>
     public static TrackMetadata[] Read(Stream wavStream)
     {
-        wavStream.Seek(12, SeekOrigin.Begin);
+        return ReadTracks(ReadFile(wavStream));
+    }
 
-        while (wavStream.Position < wavStream.Length - 8)
+    internal static byte[] SerializeTracks(TrackMetadata[] tracks)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(tracks);
+        if (bytes.Length > MaxMetadataBytes) throw new InvalidDataException("PMAL exceeds the safety budget.");
+        return bytes;
+    }
+
+    internal static TrackMetadata[] ReadTracks(WavChunksResult wav)
+    {
+        var pmal = wav.Chunks.Where(chunk => chunk.ChunkId == ChunkId).ToArray();
+        if (pmal.Length != 1) throw new InvalidDataException("Expected exactly one PMAL chunk.");
+        TrackMetadata[] tracks;
+        try { tracks = JsonSerializer.Deserialize<TrackMetadata[]>(pmal[0].Data) ?? throw new InvalidDataException("Null PMAL."); }
+        catch (JsonException ex) { throw new InvalidDataException("Invalid PMAL JSON.", ex); }
+        if (tracks.Length == 0 || tracks.Length > MaxTracks) throw new InvalidDataException("Invalid PMAL track count.");
+        var mergedFormat = new WavAudioFormat(wav.FormatData);
+        mergedFormat.ValidateDataLength(wav.DataLength);
+        long frames = wav.DataLength / mergedFormat.BlockAlign;
+        long channelSum = 0;
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < tracks.Length; i++)
         {
-            byte[] id = new byte[4];
-            if (wavStream.Read(id, 0, 4) < 4) break;
-
-            byte[] lenBytes = new byte[4];
-            if (wavStream.Read(lenBytes, 0, 4) < 4) break;
-
-            string chunkName = System.Text.Encoding.ASCII.GetString(id);
-
-            if (chunkName == ChunkId)
-            {
-                int dataLength = BitConverter.ToInt32(lenBytes, 0);
-                byte[] data = new byte[dataLength];
-                wavStream.Read(data, 0, dataLength);
-                string json = System.Text.Encoding.UTF8.GetString(data);
-                return JsonSerializer.Deserialize<TrackMetadata[]>(json)!;
-            }
-
-            int skipLength = BitConverter.ToInt32(lenBytes, 0);
-            wavStream.Seek(skipLength, SeekOrigin.Current);
-            if (skipLength % 2 != 0)
-            {
-                wavStream.Seek(1, SeekOrigin.Current);
-            }
+            var track = tracks[i];
+            if (track == null || track.Index != i || track.Channels <= 0 || track.Channels > short.MaxValue || track.Chunks == null)
+                throw new InvalidDataException("Invalid PMAL track/index/channels.");
+            ValidateFileName(track.FileName);
+            if (!names.Add(track.FileName)) throw new InvalidDataException("Duplicate PMAL output name.");
+            var format = track.FormatData == null ? mergedFormat.WithChannels(track.Channels) : new WavAudioFormat(track.FormatData);
+            if (format.Channels != track.Channels || !mergedFormat.IsCompatibleWith(format))
+                throw new InvalidDataException("PMAL format does not match merged audio.");
+            format.ValidateDataLength(track.DataLength);
+            if (track.DataLength / format.BlockAlign > frames) throw new InvalidDataException("PMAL length exceeds merged audio.");
+            ValidateChunks(track.Chunks);
+            channelSum += track.Channels;
         }
+        if (channelSum != mergedFormat.Channels) throw new InvalidDataException("PMAL channel sum does not match merged audio.");
+        return tracks;
+    }
 
-        throw new InvalidOperationException("PMAL chunk not found in WAV file.");
+    internal static void ValidateFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.EndsWith('.') || name.EndsWith(' ') ||
+            name.Any(c => c < 32 || "<>:\"/\\|?*".Contains(c)) || name.Length > 255)
+            throw new InvalidDataException("PMAL output must be a safe file name, not a path.");
+        string stem = name.Split('.')[0].TrimEnd(' ').ToUpperInvariant();
+        if (stem is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$" ||
+            (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal)) &&
+                "123456789\u00b9\u00b2\u00b3".Contains(stem[3])))
+            throw new InvalidDataException("Reserved Windows output name.");
+    }
+
+    internal static void ValidateChunks(List<WavChunkData> chunks)
+    {
+        long total = 0;
+        if (chunks.Count > 65536) throw new InvalidDataException("Too many metadata chunks.");
+        foreach (var chunk in chunks)
+        {
+            if (chunk == null || chunk.ChunkId == null || chunk.ChunkId.Length != 4 || chunk.ChunkId.Any(c => c < 32 || c > 126) || chunk.Data == null)
+                throw new InvalidDataException("Invalid preserved chunk.");
+            if (chunk.ChunkId is "fmt " or "data" or "ds64") throw new InvalidDataException("Structural chunk inside PMAL metadata.");
+            total += chunk.Data.Length;
+            if (total > MaxMetadataBytes) throw new InvalidDataException("Preserved metadata exceeds the safety budget.");
+            WavChunkParsers.ValidateList(chunk);
+        }
+    }
+
+    internal static void AddChunks(WaveFileWriter writer, List<WavChunkData> chunks)
+    {
+        foreach (var chunk in chunks)
+        {
+            if (chunk.ChunkId == "fact") continue; // NAudio regenerates the sample count.
+            bool after = chunk.ChunkId is "cue " or "smpl" or "adtl" or "pmal" ||
+                (chunk.ChunkId == "LIST" && chunk.Data.AsSpan().StartsWith("adtl"u8));
+            writer.AddChunk(chunk.ChunkId, chunk.Data, after ? ChunkPosition.AfterData : ChunkPosition.BeforeData);
+        }
     }
 
     /// <summary>
@@ -231,29 +350,10 @@ public static class WavMetadataChunk
     /// </summary>
     public static int WriteChunksToBuffer(byte[] buffer, int offset, List<WavChunkData> chunks)
     {
-        int pos = offset;
-        foreach (var chunk in chunks)
-        {
-            // Chunk ID
-            byte[] idBytes = System.Text.Encoding.ASCII.GetBytes(chunk.ChunkId);
-            idBytes.CopyTo(buffer, pos);
-            pos += 4;
-
-            // Chunk length (little-endian)
-            BitConverter.GetBytes(chunk.Data.Length).CopyTo(buffer, pos);
-            pos += 4;
-
-            // Chunk data
-            chunk.Data.CopyTo(buffer, pos);
-            pos += chunk.Data.Length;
-
-            // Even alignment
-            if (chunk.Data.Length % 2 != 0)
-            {
-                pos++;
-            }
-        }
-        return pos - offset;
+        using var stream = new MemoryStream(buffer, writable: true);
+        stream.Position = offset;
+        WriteChunksToStream(stream, chunks);
+        return checked((int)stream.Position - offset);
     }
 
     /// <summary>
@@ -261,31 +361,15 @@ public static class WavMetadataChunk
     /// </summary>
     public static void WriteChunksToStream(Stream stream, List<WavChunkData> chunks)
     {
+        ValidateChunks(chunks);
+        Span<byte> length = stackalloc byte[4];
         foreach (var chunk in chunks)
         {
-            // Chunk ID
-            byte[] idBytes = System.Text.Encoding.ASCII.GetBytes(chunk.ChunkId);
-            stream.Write(idBytes, 0, 4);
-
-            // Chunk length (little-endian)
-            WriteInt32LE(stream, chunk.Data.Length);
-
-            // Chunk data
-            stream.Write(chunk.Data, 0, chunk.Data.Length);
-
-            // Even alignment
-            if (chunk.Data.Length % 2 != 0)
-            {
-                stream.WriteByte(0);
-            }
+            stream.Write(Encoding.ASCII.GetBytes(chunk.ChunkId));
+            BinaryPrimitives.WriteInt32LittleEndian(length, chunk.Data.Length);
+            stream.Write(length);
+            stream.Write(chunk.Data);
+            if ((chunk.Data.Length & 1) != 0) stream.WriteByte(0);
         }
-    }
-
-    private static void WriteInt32LE(Stream stream, int value)
-    {
-        byte[] bytes = BitConverter.GetBytes(value);
-        if (!BitConverter.IsLittleEndian)
-            bytes = bytes.Reverse().ToArray();
-        stream.Write(bytes, 0, 4);
     }
 }

@@ -85,4 +85,42 @@
   <data name="ProviderNotMono" xml:space="preserve">
     <value>Файл должен быть моно: {0}</value>
   </data>
+  <data name="AppTitle" xml:space="preserve"><value>WAV Utils</value></data>
+  <data name="AppBanner" xml:space="preserve"><value>WAV Utils — Многоканальный WAV менеджер</value></data>
+  <data name="AppMergeOperation" xml:space="preserve"><value>Объединение WAV-файлов...</value></data>
+  <data name="AppSplitOperation" xml:space="preserve"><value>Извлечение дорожек...</value></data>
+  <data name="AppTimecodeOperation" xml:space="preserve"><value>Запись таймкода...</value></data>
+  <data name="TimecodeCheckingOriginal" xml:space="preserve"><value>Проверка исходного WAV</value></data>
+  <data name="TimecodeWriting" xml:space="preserve"><value>Запись WAV с таймкодом</value></data>
+  <data name="TimecodeSavingBackup" xml:space="preserve"><value>Сохранение исходной копии</value></data>
+  <data name="TimecodeVerifying" xml:space="preserve"><value>Проверка WAV после записи таймкода</value></data>
+  <data name="AppMergeArgError" xml:space="preserve"><value>Использование: WAVUtils merge file1.wav file2.wav [...] [--out output.wav]</value></data>
+  <data name="AppSplitArgError" xml:space="preserve"><value>Использование: WAVUtils split merged.wav [--output-dir directory]</value></data>
+  <data name="AppUnknownCommand" xml:space="preserve"><value>Неизвестная команда: {0}</value></data>
+  <data name="ProgressComplete" xml:space="preserve"><value>Готово!</value></data>
+  <data name="ProgressError" xml:space="preserve"><value>Операция не выполнена. Подробности указаны ниже.</value></data>
+  <data name="ProgressCancel" xml:space="preserve"><value>Отмена</value></data>
+  <data name="ProgressClose" xml:space="preserve"><value>Закрыть</value></data>
+  <data name="ProgressCancelled" xml:space="preserve"><value>Отменено. Уже завершённые файлы, если они есть, сохранены.</value></data>
+  <data name="ProgressCancelling" xml:space="preserve"><value>Отмена операции...</value></data>
+  <data name="ProgressLabel" xml:space="preserve"><value>Прогресс выполнения</value></data>
+  <data name="TrayLog" xml:space="preserve"><value>Журнал</value></data>
+  <data name="TrayAbout" xml:space="preserve"><value>О программе</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>Выход</value></data>
+  <data name="AboutTitle" xml:space="preserve"><value>О программе</value></data>
+  <data name="AboutText" xml:space="preserve"><value>WAV Utils — многоканальный WAV менеджер. Объединение, разделение и запись таймкода WAV.</value></data>
+  <data name="UpdateChecking" xml:space="preserve"><value>Проверка обновлений...</value></data>
+  <data name="UpdateAvailable" xml:space="preserve"><value>Доступно обновление: {0} (установлено: {1})</value></data>
+  <data name="UpdateUpToDate" xml:space="preserve"><value>Установлена последняя версия.</value></data>
+  <data name="UpdateCheckFailed" xml:space="preserve"><value>Не удалось проверить обновления. Попробуйте позже.</value></data>
+  <data name="UpdateCheckError" xml:space="preserve"><value>Ошибка проверки обновлений: {0}</value></data>
+  <data name="UpdateDownloadStart" xml:space="preserve"><value>Загрузка обновления...</value></data>
+  <data name="UpdateDownloadComplete" xml:space="preserve"><value>Загрузка проверена.</value></data>
+  <data name="UpdateInstallSuccess" xml:space="preserve"><value>Обновление установлено. Перезапустите приложение.</value></data>
+  <data name="UpdateInstallFailed" xml:space="preserve"><value>Не удалось запустить установщик.</value></data>
+  <data name="UpdateManualDownload" xml:space="preserve"><value>Открыть официальную страницу выпуска для ручной установки?</value></data>
+  <data name="UpdateCheckNow" xml:space="preserve"><value>Проверить &amp;обновления</value></data>
+  <data name="UpdateAutoCheck" xml:space="preserve"><value>&amp;Автоматически проверять обновления</value></data>
+  <data name="UpdateDownloadPrompt" xml:space="preserve"><value>Скачать и проверить установщик?</value></data>
+  <data name="UpdateVerifiedReady" xml:space="preserve"><value>Размер, SHA-256 и заголовок PE установщика проверены. Закрыть WAVUtils Tray и запустить установку?</value></data>
 </root>
