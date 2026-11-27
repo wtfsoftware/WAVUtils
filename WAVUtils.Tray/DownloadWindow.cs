@@ -24,25 +24,38 @@ internal sealed class DownloadWindow : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(20, 12, 20, 20),
+            ColumnCount = 1,
+            RowCount = 3,
+            ColumnStyles = { new ColumnStyle(SizeType.Percent, 100) },
+            RowStyles =
+            {
+                new RowStyle(SizeType.Percent, 100),
+                new RowStyle(SizeType.Absolute, 44),
+                new RowStyle(SizeType.AutoSize)
+            }
+        };
         _status = new Label
         {
-            Name = "DownloadStatus", Location = new Point(20, 12), Size = new Size(500, 36),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Name = "DownloadStatus", Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 8),
             Text = LocalizationManager.GetResource("UpdateDownloadStart"), TextAlign = ContentAlignment.MiddleCenter
         };
         _progress = new ProgressBar
         {
             Name = "DownloadProgress", AccessibleName = LocalizationManager.GetResource("ProgressLabel"),
-            Location = new Point(20, 56), Size = new Size(500, 24), Maximum = 1000, Style = ProgressBarStyle.Continuous,
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 20), Maximum = 1000, Style = ProgressBarStyle.Continuous
         };
         _cancel = new Button
         {
             Name = "DownloadAction", Text = LocalizationManager.GetResource("ProgressCancel"),
-            Location = new Point(424, 100), AutoSize = true, MinimumSize = new Size(96, 32),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            Margin = Padding.Empty, AutoSize = true, MinimumSize = new Size(96, 32),
+            Anchor = AnchorStyles.Right
         };
-        Controls.AddRange([_status, _progress, _cancel]);
+        layout.Controls.AddRange([_status, _progress, _cancel]);
+        Controls.Add(layout);
         _cancel.Click += (_, _) => CancelDownload();
         CancelButton = _cancel;
         FormClosing += (_, e) => { if (_running) { e.Cancel = true; CancelDownload(); } };

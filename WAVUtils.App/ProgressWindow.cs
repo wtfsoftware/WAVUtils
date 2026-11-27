@@ -33,48 +33,58 @@ public class ProgressWindow : Form
         Text = LocalizationManager.GetResource("AppTitle");
         Font = SystemFonts.MessageBoxFont;
 
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(20, 12, 20, 16),
+            ColumnCount = 1,
+            RowCount = 4,
+            ColumnStyles = { new ColumnStyle(SizeType.Percent, 100) },
+            RowStyles =
+            {
+                new RowStyle(SizeType.Absolute, 56),
+                new RowStyle(SizeType.Absolute, 40),
+                new RowStyle(SizeType.Percent, 100),
+                new RowStyle(SizeType.AutoSize)
+            }
+        };
         _label = new Label
         {
             Name = "OperationStatus",
-            Location = new Point(20, 12),
-            Size = new Size(500, 48),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 8),
             TextAlign = ContentAlignment.MiddleCenter
         };
-        this.Controls.Add(_label);
 
         _progressBar = new ProgressBar
         {
             Name = "OperationProgress",
             AccessibleName = LocalizationManager.GetResource("ProgressLabel"),
-            Location = new Point(20, 68),
-            Size = new Size(500, 24),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 16),
             Maximum = 1000,
             Style = ProgressBarStyle.Continuous
         };
-        this.Controls.Add(_progressBar);
 
         _fileList = new ListBox
         {
             Name = "OperationFiles",
             AccessibleName = LocalizationManager.GetResource("AppTitle"),
-            Location = new Point(20, 108),
-            Size = new Size(500, 128),
-            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 16),
             HorizontalScrollbar = true,
             IntegralHeight = false
         };
-        this.Controls.Add(_fileList);
 
         _action = new Button
         {
             Name = "OperationAction", Text = LocalizationManager.GetResource("ProgressClose"),
-            Location = new Point(424, 252), AutoSize = true, MinimumSize = new Size(96, 32),
-            Anchor = AnchorStyles.Right | AnchorStyles.Bottom
+            Margin = Padding.Empty, AutoSize = true, MinimumSize = new Size(96, 32),
+            Anchor = AnchorStyles.Right
         };
         _action.Click += (_, _) => { if (_running) RequestCancellation(); else Close(); };
-        Controls.Add(_action);
+        layout.Controls.AddRange([_label, _progressBar, _fileList, _action]);
+        Controls.Add(layout);
         CancelButton = _action;
         FormClosing += (_, e) => { if (_running) { e.Cancel = true; RequestCancellation(); } };
         _refresh = new System.Windows.Forms.Timer { Interval = 200 };

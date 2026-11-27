@@ -80,13 +80,15 @@ The table records findings and their status:
 | 72 | Remediation: per-account setup instructions [12] | P3: the Windows client default can block both scripts; the bundled quick guide also called the menu actions by their English translations rather than the displayed labels | 30 min | Fixed; documented process-only PowerShell policy on personal computers and linked the per-account instructions from the quick guide |
 | 73 | Remediation: startup settings regression | P1: corrupt settings or incorrect preference types could prevent App and Tray from starting; an unreadable user path could reuse an older opt-in | 1–2 h | Fixed; six cases failed before the fix. Portable 1.2.905 starts and merges with the corrupt file unchanged; Tray skips automatic checks. A local proxy confirmed that explicit opt-in still works |
 | 74 | Remediation: release source digest comparison | P2: publishing silently changed three development lock files for the `win-x64` dependency graph. NuGet also generated a missing custom lock even in locked mode | 2–4 h | Fixed; [separate release locks and an exact SDK](../adr/0003-lock-windows-release-dependencies.md). Two script checks failed before the fix. Real locked publish rejects dependency drift with `NU1004`, without rewriting the lock or producing a package |
+| 75 | [First Windows CI run](https://github.com/wtfsoftware/WAVUtils/actions/runs/45969111018) | P2: at 200% scale, WinForms capped the top-level width but the WAV progress and download controls retained offsets and widths for the uncapped form | 1–2 h | Fixed; both dialogs lay out their contents against the actual client area. Both native-width-cap cases failed before the fix and pass after it |
 
 ## Verification
 
 The original audit built with seven warnings. Its temporary Core probes passed
 the PCM16 baseline and reproduced 15 failures. The remediation has a permanent
-Windows gate: the strict Release build reports no warnings and all 185 tests
-pass. See [remediation verification](2026-11-25-audit-remediation.md#verification)
+Windows gate: the strict local Release build reports no warnings and all 187
+tests pass, including the width-cap cases in #75. See
+[remediation verification](2026-11-25-audit-remediation.md#verification)
 for separate portable-binary checks and remaining integration risks.
 
 Verification uses generated WAV files in a sandbox. It does not run Setup,

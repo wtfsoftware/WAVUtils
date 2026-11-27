@@ -52,6 +52,10 @@ solution includes `WAVUtils.Tests`; no test requires running Setup or touching
 production recordings. See [architecture](ARCHITECTURE.md) for the App, Core,
 and Tray boundaries and [the master plan](docs/plans/MASTER.md) for finding IDs.
 
+- In WinForms layout tests, request a scaled width beyond the native tracking
+  limit and assert that Windows capped it. Testing a fixed scale on a wide
+  monitor alone can miss controls clipped after the cap.
+
 ## WAV verification
 
 - Verify WAV headers and timecode with independently authored bytes and

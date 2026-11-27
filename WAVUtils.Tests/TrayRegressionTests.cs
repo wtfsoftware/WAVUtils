@@ -31,21 +31,16 @@ public sealed class TrayRegressionTests
     });
 
     [TestMethod]
-    [DataRow("en", 1f)]
-    [DataRow("ru", 1f)]
-    [DataRow("en", 1.5f)]
-    [DataRow("ru", 2f)]
-    public void Finding50DownloadControlsFitAtEachRenderedScale(string language, float scale) => DesktopRegressionTests.OnSta(() =>
+    [DataRow("en", 1f, false)]
+    [DataRow("ru", 1f, false)]
+    [DataRow("en", 1.5f, false)]
+    [DataRow("ru", 2f, false)]
+    [DataRow("ru", 2f, true)]
+    public void Finding50DownloadControlsFitAtEachRenderedScale(string language, float scale, bool constrainWidth) => DesktopRegressionTests.OnSta(() =>
     {
         CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(language);
         using var window = new DownloadWindow();
-        window.Show();
-        window.Scale(new SizeF(scale, scale));
-        window.PerformLayout();
-        foreach (Control control in window.Controls)
-            Assert.IsTrue(window.ClientRectangle.Contains(control.Bounds), $"{control.Name}: {control.Bounds} exceeds {window.ClientRectangle}.");
-        var button = window.Controls.OfType<Button>().Single();
-        Assert.IsTrue(TextRenderer.MeasureText(button.Text, button.Font).Width <= button.ClientSize.Width);
+        DesktopRegressionTests.AssertScaledLayout(window, scale, constrainWidth);
     });
 
     [TestMethod]

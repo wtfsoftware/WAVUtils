@@ -8,8 +8,10 @@ backups. Keep the first `.bak` beside each file stamped by this version.
 
 Setup no longer changes the Explorer menu or Tray autostart. If you use either
 feature, [configure it for your Windows account](https://github.com/wtfsoftware/WAVUtils/blob/v1.3.0/README.md#configure-explorer-and-tray-for-your-account).
-Old settings aren't migrated. If you use WAVUtils without installing it, upgrade
-by extracting the portable ZIP instead of running Setup.
+Old settings aren't migrated. After an in-place upgrade, the uninstaller can
+still apply registry cleanup recorded by an older Setup to the account that
+runs it. If you use WAVUtils without installing it, upgrade by extracting the
+portable ZIP instead of running Setup.
 
 ### Added
 
@@ -24,6 +26,8 @@ by extracting the portable ZIP instead of running Setup.
   metadata. Neither command overwrites an existing output.
 - Broadcast Wave timecode uses the standard `bext` layout. Repeating the same
   `tc --from` no longer applies the time shift twice.
+- The WAV progress and update download dialogs fit their controls when Windows
+  limits the window width at high display scaling.
 - Unreadable settings don't prevent startup or trigger automatic update checks.
   Tray verifies the installer against GitHub's SHA-256 digest and asks before
   downloading it and again before launching it.
